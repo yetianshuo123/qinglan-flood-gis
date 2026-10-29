@@ -127,7 +127,9 @@ export function rasterLevelFor(zoom: number): RasterLevel {
   if (zoom >= 14.2) {
     return { key: 'L2', scale: 8, terrainScale: 8, bicubic: true, smoothDepth: true }
   }
-  return { key: 'L1', scale: 4, terrainScale: 6, bicubic: false, smoothDepth: false }
+  // L1（全局视图）：提高 scale 至 6 并开启 smoothDepth，消除方块感，
+  // 让积水/风险斑块顺应低洼地与河道分布，而非呈现明显像素网格。
+  return { key: 'L1', scale: 6, terrainScale: 6, bicubic: true, smoothDepth: true }
 }
 
 export async function createTerrainDataUrl(
@@ -160,7 +162,9 @@ export async function createTerrainDataUrl(
         const hs =
           Math.cos(zenith) * Math.cos(slope) +
           Math.sin(zenith) * Math.sin(slope) * Math.cos(azSun - aspect)
-        const shade = Math.max(0.55, Math.min(1.28, 0.72 + hs * 0.55))
+        // 扩大晕渲动态范围：从 0.55–1.28 调整为 0.32–1.62，
+        // 让北部丘陵的迎光面更亮、背阴面更暗，洼地与河谷的光影对比更明显。
+        const shade = Math.max(0.32, Math.min(1.62, 0.78 + hs * 0.82))
         const [r, g, b] = rampColor((e - grid.min) / range, TERRAIN_STOPS)
         const idx = (y * w + x) * 4
         img.data[idx] = Math.min(255, Math.round(r * shade))
@@ -269,15 +273,35 @@ export async function createRiskDataUrl(
   cols: number,
   rows: number,
   scale = 4,
+  smooth = false,
 ): Promise<string> {
   const { canvas, ctx, w, h } = makeCanvas(cols, rows, scale)
   const img = ctx.createImageData(w, h)
+  const at = (r: number, c: number) =>
+    risk[Math.max(0, Math.min(rows - 1, r)) * cols + Math.max(0, Math.min(cols - 1, c))]
   for (const [y0, y1] of bands(h, 6)) {
     for (let y = y0; y < y1; y++) {
-      const row = Math.min(rows - 1, Math.floor((y / h) * rows))
       for (let x = 0; x < w; x++) {
-        const col = Math.min(cols - 1, Math.floor((x / w) * cols))
-        const level = risk[row * cols + col]
+        let level: number
+        if (smooth) {
+          // 对离散风险等级做双线性插值后取整，消除全局视图下的方块感
+          const gx = (x / (w - 1)) * (cols - 1)
+          const gy = (y / (h - 1)) * (rows - 1)
+          const x0 = Math.floor(gx)
+          const y0 = Math.floor(gy)
+          const fx = gx - x0
+          const fy = gy - y0
+          const v =
+            at(y0, x0) * (1 - fx) * (1 - fy) +
+            at(y0, x0 + 1) * fx * (1 - fy) +
+            at(y0 + 1, x0) * (1 - fx) * fy +
+            at(y0 + 1, x0 + 1) * fx * fy
+          level = Math.round(v)
+        } else {
+          const row = Math.min(rows - 1, Math.floor((y / h) * rows))
+          const col = Math.min(cols - 1, Math.floor((x / w) * cols))
+          level = risk[row * cols + col]
+        }
         const c = RISK_RGB[level]
         const idx = (y * w + x) * 4
         img.data[idx] = c[0]

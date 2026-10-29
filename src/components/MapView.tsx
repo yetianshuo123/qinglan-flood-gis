@@ -872,6 +872,7 @@ export default function MapView(props: MapViewProps) {
           props.model.depth.cols,
           props.model.depth.rows,
           level.scale,
+          level.smoothDepth,
         ))
       if (cancelled) return
       if (!riskCached) putRaster(riskKey, props.model, riskUrl)

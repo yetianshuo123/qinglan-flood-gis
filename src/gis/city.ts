@@ -35,20 +35,37 @@ const BOUNDS: [number, number, number, number] = [120.0, 30.0, 120.16, 30.08]
 const COLS = 168
 const ROWS = 90
 
-/** 澜江：自北向南穿城，河道平缓弯曲，下游略向东偏移 */
+/**
+ * 澜江：自北向南穿城，顺应地形蜿蜒。
+ * 北部丘陵段河道较直、切山而行；中部绕过高地形成宽 S 形曲流；
+ * 南部进入湿地滞洪区，河面展宽、河曲发育。
+ * 24 个控制点，侧向摆动幅度约 0.8–1.4 km，呈现自然蜿蜒形态。
+ */
 const RIVER: LonLat[] = [
-  [120.081, 30.08],
-  [120.0845, 30.073],
-  [120.083, 30.066],
-  [120.0845, 30.059],
-  [120.086, 30.052],
-  [120.088, 30.045],
-  [120.0905, 30.038],
-  [120.0935, 30.031],
-  [120.0965, 30.024],
-  [120.1005, 30.017],
+  [120.078, 30.0805],
+  [120.076, 30.076],
+  [120.0735, 30.0715],
+  [120.0725, 30.067],
+  [120.0745, 30.0625],
+  [120.079, 30.0585],
+  [120.0855, 30.0555],
+  [120.0935, 30.053],
+  [120.1005, 30.0505],
+  [120.1055, 30.047],
+  [120.107, 30.043],
+  [120.104, 30.039],
+  [120.098, 30.036],
+  [120.0905, 30.0335],
+  [120.0835, 30.0305],
+  [120.079, 30.027],
+  [120.0775, 30.023],
+  [120.0805, 30.019],
+  [120.0875, 30.0155],
+  [120.096, 30.0125],
   [120.1045, 30.01],
-  [120.11, 30.0],
+  [120.1105, 30.007],
+  [120.115, 30.0035],
+  [120.118, 30.0],
 ]
 
 const CANALS: { id: string; name: string; widthM: number; coords: LonLat[]; capacity: number }[] = [
@@ -62,7 +79,7 @@ const CANALS: { id: string; name: string; widthM: number; coords: LonLat[]; capa
       [120.052, 30.068],
       [120.062, 30.062],
       [120.076, 30.058],
-      [120.0845, 30.056],
+      [120.0855, 30.0558],
     ],
   },
   {
@@ -74,8 +91,9 @@ const CANALS: { id: string; name: string; widthM: number; coords: LonLat[]; capa
       [120.014, 30.05],
       [120.03, 30.048],
       [120.05, 30.046],
-      [120.07, 30.044],
-      [120.089, 30.041],
+      [120.072, 30.0435],
+      [120.09, 30.0415],
+      [120.1045, 30.0408],
     ],
   },
   {
@@ -85,10 +103,10 @@ const CANALS: { id: string; name: string; widthM: number; coords: LonLat[]; capa
     capacity: 34,
     coords: [
       [120.062, 30.034],
-      [120.074, 30.032],
-      [120.086, 30.03],
-      [120.096, 30.026],
-      [120.0985, 30.022],
+      [120.072, 30.0325],
+      [120.082, 30.031],
+      [120.09, 30.03],
+      [120.084, 30.0303],
     ],
   },
   {
@@ -99,18 +117,19 @@ const CANALS: { id: string; name: string; widthM: number; coords: LonLat[]; capa
     coords: [
       [120.132, 30.06],
       [120.134, 30.048],
-      [120.132, 30.036],
-      [120.128, 30.026],
-      [120.124, 30.02],
+      [120.13, 30.036],
+      [120.122, 30.026],
+      [120.112, 30.019],
+      [120.1005, 30.0132],
     ],
   },
 ]
 
 const PUMPS: { id: string; name: string; lon: number; lat: number; capacity: number; district: string }[] = [
-  { id: 'P01', name: '北岭入河泵站', lon: 120.0815, lat: 30.057, capacity: 6.0, district: '澜汀主城区' },
+  { id: 'P01', name: '北岭入河泵站', lon: 120.085, lat: 30.057, capacity: 6.0, district: '澜汀主城区' },
   { id: 'P02', name: '中区一号泵站', lon: 120.07, lat: 30.033, capacity: 5.4, district: '澜汀主城区' },
-  { id: 'P03', name: '中区二号泵站', lon: 120.092, lat: 30.029, capacity: 4.8, district: '澜汀主城区' },
-  { id: 'P04', name: '南塘湿地排涝泵站', lon: 120.107, lat: 30.018, capacity: 3.6, district: '南塘湿地滞洪区' },
+  { id: 'P03', name: '中区二号泵站', lon: 120.086, lat: 30.0305, capacity: 4.8, district: '澜汀主城区' },
+  { id: 'P04', name: '南塘湿地排涝泵站', lon: 120.102, lat: 30.0155, capacity: 3.6, district: '南塘湿地滞洪区' },
 ]
 
 const LOWLANDS: {
@@ -249,8 +268,8 @@ interface RoadDef {
 
 /** 三横三纵一环：横线横贯东西，纵线贯通南北，环线围合主城区 */
 const ROAD_DEFS: RoadDef[] = [
-  { id: 'R01', name: '北岭路', roadClass: '主干道', lanes: 6, a: [120.004, 30.058], b: [120.156, 30.058], amp: 0.0007, axis: 'ew', surface: '沥青' },
-  { id: 'R02', name: '中央大道', roadClass: '主干道', lanes: 8, a: [120.004, 30.042], b: [120.156, 30.042], amp: 0.0006, axis: 'ew', surface: '沥青' },
+  { id: 'R01', name: '北岭路', roadClass: '主干道', lanes: 6, a: [120.004, 30.058], b: [120.156, 30.058], amp: 0.0016, axis: 'ew', surface: '沥青' },
+  { id: 'R02', name: '中央大道', roadClass: '主干道', lanes: 8, a: [120.004, 30.042], b: [120.156, 30.042], amp: 0.0014, axis: 'ew', surface: '沥青' },
   {
     id: 'R03',
     name: '南环路',
@@ -277,9 +296,9 @@ const ROAD_DEFS: RoadDef[] = [
       [120.156, 30.026],
     ],
   },
-  { id: 'R04', name: '西溪路', roadClass: '主干道', lanes: 6, a: [120.03, 30.004], b: [120.03, 30.064], amp: 0.0008, axis: 'ns', surface: '沥青' },
-  { id: 'R05', name: '澜汀大道', roadClass: '主干道', lanes: 8, a: [120.1, 30.027], b: [120.1, 30.06], amp: 0.0005, axis: 'ns', surface: '沥青' },
-  { id: 'R06', name: '东港大道', roadClass: '主干道', lanes: 8, a: [120.14, 30.008], b: [120.14, 30.062], amp: 0.0005, axis: 'ns', surface: '沥青' },
+  { id: 'R04', name: '西溪路', roadClass: '主干道', lanes: 6, a: [120.03, 30.004], b: [120.03, 30.064], amp: 0.0018, axis: 'ns', surface: '沥青' },
+  { id: 'R05', name: '澜汀大道', roadClass: '主干道', lanes: 8, a: [120.1, 30.027], b: [120.1, 30.06], amp: 0.0012, axis: 'ns', surface: '沥青' },
+  { id: 'R06', name: '东港大道', roadClass: '主干道', lanes: 8, a: [120.14, 30.008], b: [120.14, 30.062], amp: 0.0013, axis: 'ns', surface: '沥青' },
   {
     id: 'R07',
     name: '澜汀一环',
@@ -290,50 +309,64 @@ const ROAD_DEFS: RoadDef[] = [
     amp: 0.0003,
     axis: 'ring',
     surface: '沥青',
+    // 不规则闭合折线：避让澜江河曲，四角半径不一，北侧外凸、南侧收束，
+    // 模拟受河道与地块制约的有机环线而非完美圆角矩形。
     path: [
       [120.042, 30.052],
-      [120.056, 30.056],
+      [120.048, 30.0565],
+      [120.058, 30.0585],
       [120.07, 30.058],
-      [120.086, 30.0565],
-      [120.1, 30.055],
+      [120.082, 30.057],
+      [120.092, 30.0555],
+      [120.102, 30.054],
       [120.112, 30.051],
-      [120.118, 30.045],
-      [120.116, 30.036],
+      [120.118, 30.046],
+      [120.119, 30.04],
+      [120.116, 30.034],
       [120.11, 30.03],
-      [120.098, 30.028],
-      [120.086, 30.029],
-      [120.074, 30.03],
-      [120.062, 30.032],
+      [120.101, 30.028],
+      [120.09, 30.028],
+      [120.08, 30.029],
+      [120.07, 30.0305],
+      [120.06, 30.032],
       [120.052, 30.036],
-      [120.046, 30.044],
-      [120.042, 30.05],
+      [120.046, 30.042],
+      [120.043, 30.048],
       [120.042, 30.052],
     ],
   },
-  { id: 'R08', name: '滨江路', roadClass: '次干道', lanes: 4, a: [120.076, 30.0245], b: [120.076, 30.06], amp: 0.0007, axis: 'ns', surface: '沥青' },
-  { id: 'R09', name: '学府路', roadClass: '次干道', lanes: 4, a: [120.006, 30.05], b: [120.056, 30.05], amp: 0.0006, axis: 'ew', surface: '沥青' },
-  { id: 'R10', name: '文澜路', roadClass: '次干道', lanes: 4, a: [120.04, 30.034], b: [120.116, 30.034], amp: 0.0006, axis: 'ew', surface: '沥青' },
-  { id: 'R11', name: '科创路', roadClass: '次干道', lanes: 4, a: [120.048, 30.008], b: [120.048, 30.058], amp: 0.0007, axis: 'ns', surface: '混凝土' },
-  { id: 'R12', name: '临港路', roadClass: '次干道', lanes: 4, a: [120.104, 30.048], b: [120.156, 30.048], amp: 0.0006, axis: 'ew', surface: '混凝土' },
-  { id: 'R13', name: '港前路', roadClass: '次干道', lanes: 4, a: [120.122, 30.012], b: [120.158, 30.012], amp: 0.0006, axis: 'ew', surface: '混凝土' },
+  { id: 'R08', name: '滨江路', roadClass: '次干道', lanes: 4, a: [120.076, 30.0245], b: [120.076, 30.06], amp: 0.0016, axis: 'ns', surface: '沥青' },
+  { id: 'R09', name: '学府路', roadClass: '次干道', lanes: 4, a: [120.006, 30.05], b: [120.056, 30.05], amp: 0.0014, axis: 'ew', surface: '沥青' },
+  { id: 'R10', name: '文澜路', roadClass: '次干道', lanes: 4, a: [120.04, 30.034], b: [120.116, 30.034], amp: 0.0014, axis: 'ew', surface: '沥青' },
+  { id: 'R11', name: '科创路', roadClass: '次干道', lanes: 4, a: [120.048, 30.008], b: [120.048, 30.058], amp: 0.0016, axis: 'ns', surface: '混凝土' },
+  { id: 'R12', name: '临港路', roadClass: '次干道', lanes: 4, a: [120.104, 30.048], b: [120.156, 30.048], amp: 0.0014, axis: 'ew', surface: '混凝土' },
+  { id: 'R13', name: '港前路', roadClass: '次干道', lanes: 4, a: [120.122, 30.012], b: [120.158, 30.012], amp: 0.0013, axis: 'ew', surface: '混凝土' },
 ]
 
 /** 局部街巷：加密路网，把主路围合的大地块细分为接近真实尺度的街区 */
 const LOCAL_ROAD_DEFS: RoadDef[] = [
-  { id: 'S01', name: '北岭林道', roadClass: '支路', lanes: 2, a: [120.024, 30.068], b: [120.146, 30.068], amp: 0.0008, axis: 'ew', surface: '沥青' },
-  { id: 'S02', name: '学府支路', roadClass: '支路', lanes: 2, a: [120.008, 30.046], b: [120.054, 30.046], amp: 0.0006, axis: 'ew', surface: '混凝土' },
-  { id: 'S03', name: '西溪南街', roadClass: '支路', lanes: 2, a: [120.016, 30.006], b: [120.016, 30.05], amp: 0.0007, axis: 'ns', surface: '沥青' },
-  { id: 'S04', name: '科创一支路', roadClass: '支路', lanes: 2, a: [120.008, 30.055], b: [120.05, 30.055], amp: 0.0006, axis: 'ew', surface: '混凝土' },
-  { id: 'S05', name: '云栖街', roadClass: '支路', lanes: 2, a: [120.062, 30.026], b: [120.062, 30.056], amp: 0.0006, axis: 'ns', surface: '沥青' },
-  { id: 'S06', name: '云栖南街', roadClass: '支路', lanes: 2, a: [120.07, 30.028], b: [120.07, 30.04], amp: 0.0006, axis: 'ns', surface: '混凝土' },
-  { id: 'S07', name: '南塘支路', roadClass: '支路', lanes: 2, a: [120.062, 30.03], b: [120.116, 30.03], amp: 0.0006, axis: 'ew', surface: '沥青' },
-  { id: 'S08', name: '青岚街', roadClass: '支路', lanes: 2, a: [120.118, 30.026], b: [120.118, 30.056], amp: 0.0006, axis: 'ns', surface: '沥青' },
-  { id: 'S09', name: '文澜南街', roadClass: '支路', lanes: 2, a: [120.108, 30.028], b: [120.108, 30.04], amp: 0.0005, axis: 'ns', surface: '混凝土' },
-  { id: 'S10', name: '工业一支路', roadClass: '支路', lanes: 2, a: [120.12, 30.038], b: [120.156, 30.038], amp: 0.0006, axis: 'ew', surface: '混凝土' },
-  { id: 'S11', name: '物流支路', roadClass: '支路', lanes: 2, a: [120.128, 30.026], b: [120.158, 30.026], amp: 0.0006, axis: 'ew', surface: '混凝土' },
-  { id: 'S12', name: '东港一支路', roadClass: '支路', lanes: 2, a: [120.126, 30.016], b: [120.126, 30.054], amp: 0.0006, axis: 'ns', surface: '沥青' },
-  { id: 'S13', name: '东港二支路', roadClass: '支路', lanes: 2, a: [120.15, 30.012], b: [120.15, 30.056], amp: 0.0006, axis: 'ns', surface: '沥青' },
-  { id: 'S14', name: '南塘堤路', roadClass: '支路', lanes: 2, a: [120.064, 30.02], b: [120.12, 30.02], amp: 0.0005, axis: 'ew', surface: '混凝土' },
+  { id: 'S01', name: '北岭林道', roadClass: '支路', lanes: 2, a: [120.024, 30.068], b: [120.146, 30.068], amp: 0.0018, axis: 'ew', surface: '沥青' },
+  { id: 'S02', name: '学府支路', roadClass: '支路', lanes: 2, a: [120.008, 30.046], b: [120.054, 30.046], amp: 0.0015, axis: 'ew', surface: '混凝土' },
+  { id: 'S03', name: '西溪南街', roadClass: '支路', lanes: 2, a: [120.016, 30.006], b: [120.016, 30.05], amp: 0.0017, axis: 'ns', surface: '沥青' },
+  { id: 'S04', name: '科创一支路', roadClass: '支路', lanes: 2, a: [120.008, 30.055], b: [120.05, 30.055], amp: 0.0014, axis: 'ew', surface: '混凝土' },
+  { id: 'S05', name: '云栖街', roadClass: '支路', lanes: 2, a: [120.062, 30.026], b: [120.062, 30.056], amp: 0.0016, axis: 'ns', surface: '沥青' },
+  { id: 'S06', name: '云栖南街', roadClass: '支路', lanes: 2, a: [120.07, 30.028], b: [120.07, 30.04], amp: 0.0015, axis: 'ns', surface: '混凝土' },
+  { id: 'S07', name: '南塘支路', roadClass: '支路', lanes: 2, a: [120.062, 30.03], b: [120.116, 30.03], amp: 0.0015, axis: 'ew', surface: '沥青' },
+  { id: 'S08', name: '青岚街', roadClass: '支路', lanes: 2, a: [120.118, 30.026], b: [120.118, 30.056], amp: 0.0016, axis: 'ns', surface: '沥青' },
+  { id: 'S09', name: '文澜南街', roadClass: '支路', lanes: 2, a: [120.108, 30.028], b: [120.108, 30.04], amp: 0.0014, axis: 'ns', surface: '混凝土' },
+  { id: 'S10', name: '工业一支路', roadClass: '支路', lanes: 2, a: [120.12, 30.038], b: [120.156, 30.038], amp: 0.0014, axis: 'ew', surface: '混凝土' },
+  { id: 'S11', name: '物流支路', roadClass: '支路', lanes: 2, a: [120.128, 30.026], b: [120.158, 30.026], amp: 0.0014, axis: 'ew', surface: '混凝土' },
+  { id: 'S12', name: '东港一支路', roadClass: '支路', lanes: 2, a: [120.126, 30.016], b: [120.126, 30.054], amp: 0.0015, axis: 'ns', surface: '沥青' },
+  { id: 'S13', name: '东港二支路', roadClass: '支路', lanes: 2, a: [120.15, 30.012], b: [120.15, 30.056], amp: 0.0015, axis: 'ns', surface: '沥青' },
+  { id: 'S14', name: '南塘堤路', roadClass: '支路', lanes: 2, a: [120.064, 30.02], b: [120.12, 30.02], amp: 0.0013, axis: 'ew', surface: '混凝土' },
+  // 斜街：打破正交网格，模拟受地形与历史生长影响的斜向街道
+  { id: 'S15', name: '青岚斜街', roadClass: '支路', lanes: 2, a: [120.044, 30.052], b: [120.06, 30.038], amp: 0.0012, axis: 'ew', surface: '沥青' },
+  { id: 'S16', name: '望江斜路', roadClass: '支路', lanes: 2, a: [120.112, 30.054], b: [120.126, 30.04], amp: 0.0012, axis: 'ew', surface: '沥青' },
+  { id: 'S17', name: '滨河斜路', roadClass: '支路', lanes: 2, a: [120.092, 30.04], b: [120.078, 30.026], amp: 0.0012, axis: 'ew', surface: '沥青' },
+  // 断头路：模拟尽端式街区道路
+  { id: 'S18', name: '云栖里', roadClass: '支路', lanes: 2, a: [120.052, 30.048], b: [120.052, 30.042], amp: 0.0008, axis: 'ns', surface: '混凝土' },
+  { id: 'S19', name: '临川巷', roadClass: '支路', lanes: 2, a: [120.098, 30.052], b: [120.098, 30.046], amp: 0.0008, axis: 'ns', surface: '沥青' },
+  { id: 'S20', name: '东港南巷', roadClass: '支路', lanes: 2, a: [120.136, 30.03], b: [120.136, 30.022], amp: 0.0008, axis: 'ns', surface: '混凝土' },
 ]
 
 /** 生态绿地：北部森林公园、南部湿地公园、沿江缓冲带与主城区公园 */
@@ -963,9 +996,9 @@ export function generateCity(): CityData {
         placements.push({ lon, lat, wM: w, dM: d, rot, type, floors })
       }
 
-      // 把主路围合出的大街块再切成 300 m 级地块，接近真实用地与院落尺度
-      const lotNx = Math.max(1, Math.round(wM / 300))
-      const lotNy = Math.max(1, Math.round(dM / 260))
+      // 把主路围合出的大街块再切成 ~200 m 级地块，提升街区密度与连片感
+      const lotNx = Math.max(1, Math.round(wM / 200))
+      const lotNy = Math.max(1, Math.round(dM / 170))
       const stepX = (x1 - x0) / lotNx
       const stepY = (y1 - y0) / lotNy
 
@@ -982,13 +1015,14 @@ export function generateCity(): CityData {
           if (lw < 42 || ld < 42) continue
           const local = 0.5 + 0.5 * valueNoise(lcx * 260 + 5, lcy * 260 + 9, 37)
           const lotDensity = 0.5 * local + 0.5 * densityNoise
-          if (rnd() < 0.2 + (1 - lotDensity) * 0.2) continue // 地块留白：绿地、广场、院落
+          // 降低地块留白率：从最高 40% 降至最高 24%，让建筑更连片成面
+          if (rnd() < 0.08 + (1 - lotDensity) * 0.16) continue // 地块留白：绿地、广场、院落
 
           if (industry) {
             // 工业地块：1–2 栋大跨度厂房，四周留出装卸与堆场
             const n = ld > 200 ? 2 : 1
             for (let rj = 0; rj < n; rj++) {
-              if (rnd() < 0.16) continue
+              if (rnd() < 0.08) continue
               const lat = ay + (by - ay) * ((rj + 0.5) / n) + (rnd() - 0.5) * (by - ay) * 0.05
               const lon = lcx + (rnd() - 0.5) * (bx - ax) * 0.06
               const w = Math.min(115 + rnd() * 65, lw * 0.82)
@@ -999,14 +1033,14 @@ export function generateCity(): CityData {
             // 主城核心地块：1–3 栋点式塔楼，楼间留出广场与步行空间
             const n = 1 + Math.floor(rnd() * 3)
             for (let k = 0; k < n; k++) {
-              if (rnd() < 0.16 + (1 - lotDensity) * 0.2) continue
+              if (rnd() < 0.08 + (1 - lotDensity) * 0.12) continue
               const lon = ax + (bx - ax) * (0.2 + rnd() * 0.6)
               const lat = ay + (by - ay) * (0.2 + rnd() * 0.6)
               const w = Math.min(34 + rnd() * 28, lw * 0.5)
               const d = Math.min(26 + rnd() * 20, ld * 0.5)
               add(lon, lat, w, d, blockRot, '商业', 12 + Math.floor(rnd() * 16) + boost)
             }
-          } else if (blockUse === '住宅' && lw > 110 && ld > 100 && rnd() < 0.72) {
+          } else if (blockUse === '住宅' && lw > 110 && ld > 100 && rnd() < 0.82) {
             // 居住地块：沿四边围合，内部留出院落；个别边留缺口作为出入口
             const ix0 = ax + 14 / mPerLon
             const ix1 = bx - 14 / mPerLon
@@ -1016,7 +1050,7 @@ export function generateCity(): CityData {
             const Ly = Math.max(0, (iy1 - iy0) * mPerLat)
             if (Lx < 40 || Ly < 40) continue
             const edgeH = (yEdge: number, dir: number) => {
-              if (rnd() < 0.28) return
+              if (rnd() < 0.18) return
               const n = Math.max(1, Math.min(3, Math.round(Lx / 110)))
               const gapM = 9 + rnd() * 12
               const segLen = (Lx - gapM * (n - 1)) / n
@@ -1029,7 +1063,7 @@ export function generateCity(): CityData {
               }
             }
             const edgeV = (xEdge: number, dir: number) => {
-              if (rnd() < 0.28) return
+              if (rnd() < 0.18) return
               const n = Math.max(1, Math.min(3, Math.round(Ly / 110)))
               const gapM = 9 + rnd() * 12
               const segLen = (Ly - gapM * (n - 1)) / n
@@ -1055,7 +1089,7 @@ export function generateCity(): CityData {
             const segLen = (Lm * 0.86) / segN
             for (let rj = 0; rj < rowsN; rj++) {
               for (let ci = 0; ci < segN; ci++) {
-                if (rnd() < 0.12 + (1 - lotDensity) * 0.18) continue
+                if (rnd() < 0.06 + (1 - lotDensity) * 0.1) continue
                 const crossM = -Dm / 2 + (Dm * (rj + 0.5)) / rowsN + (rnd() - 0.5) * 8
                 const alongM = -Lm / 2 + (Lm * (ci + 0.5)) / segN + (rnd() - 0.5) * 10
                 const w = Math.min(segLen * (0.52 + rnd() * 0.34), blockUse === '商业' ? 115 : 96)
