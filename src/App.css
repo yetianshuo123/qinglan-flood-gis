@@ -34,6 +34,14 @@
   pointer-events: none;
 }
 
+/* 文字标注独立画布：位于建筑体块之上，保证任何缩放下地名都可见 */
+.map-label-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
 .river-flow-canvas {
   position: absolute;
   inset: 0;
@@ -649,6 +657,14 @@ input[type='range']::-moz-range-thumb {
   font-size: 9px;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+}
+
+.legend-note {
+  margin-top: 3px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
 }
 
 .legend-rows {

@@ -10,7 +10,7 @@ import {
 } from '../uiTypes'
 import type { CityData, ModelResult } from '../gis/types'
 import type { DiffMode } from '../gis/rasters'
-import { DEPTH_CLASSES, RISK_RAMP } from '../gis/rasters'
+import { DEPTH_CLASSES, niceStep, RISK_RAMP } from '../gis/rasters'
 import {
   BUILDING_COLORS,
   BUILDING_TYPES,
@@ -55,6 +55,7 @@ function LayersPanel(props: LayersPanelProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const elevMin = props.city.terrain.dem.min
   const elevMax = props.city.terrain.dem.max
+  const contourStep = niceStep((elevMax - elevMin) / 13)
   const rainMin = Math.round(props.model.rain.min)
   const rainMax = Math.round(props.model.rain.max)
   const off = (id: LayerId) => !props.layerStates[id].visible
@@ -282,6 +283,9 @@ function LayersPanel(props: LayersPanelProps) {
             <div className="legend-scale">
               <span>{elevMin.toFixed(1)} m</span>
               <span>{elevMax.toFixed(1)} m</span>
+            </div>
+            <div className="legend-note">
+              含等高线（间距 {contourStep} m），每 5 条加粗并标注高程
             </div>
           </LegendBlock>
 

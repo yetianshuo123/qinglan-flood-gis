@@ -13,6 +13,7 @@ import type { DrawEvent } from 'ol/interaction/Draw'
 import LineString from 'ol/geom/LineString'
 import Point from 'ol/geom/Point'
 import Polygon from 'ol/geom/Polygon'
+import type OlGeometry from 'ol/geom/Geometry'
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj'
 import type { Extent } from 'ol/extent'
 import ImageStatic from 'ol/source/ImageStatic'
@@ -32,10 +33,13 @@ import {
   buildingStyle,
   BUILDING_COLORS,
   districtStyle,
+  FONT,
   focusStyle,
+  LABEL_HALO,
   lowlandStyle,
   measureLineStyle,
   measurePolygonStyle,
+  PARK_COLORS,
   parkStyle,
   queryPolygonStyle,
   roadStyle,
@@ -103,6 +107,7 @@ export default function MapView(props: MapViewProps) {
   const tipSubRef = useRef<HTMLSpanElement>(null)
   const b3dRef = useRef<HTMLCanvasElement>(null)
   const flowRef = useRef<HTMLCanvasElement>(null)
+  const labelRef = useRef<HTMLCanvasElement>(null)
   const mapRef = useRef<Map | null>(null)
   const layersRef = useRef<Record<string, BaseLayer>>({})
   const mapExtentRef = useRef<Extent | null>(null)
@@ -728,6 +733,168 @@ export default function MapView(props: MapViewProps) {
     }
   }, [])
 
+  /* ---------------- 置顶文字标注（位于所有图层与建筑体块之上） ---------------- */
+  useEffect(() => {
+    const map = mapRef.current
+    const canvas = labelRef.current
+    if (!map || !canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const featuresOf = (id: string): Feature[] => {
+      const layer = layersRef.current[id] as
+        | VectorLayer<VectorSource>
+        | undefined
+      if (!layer || !layer.getVisible()) return []
+      return layer.getSource()?.getFeatures() ?? []
+    }
+
+    const render = () => {
+      const size = map.getSize()
+      if (!size) return
+      const [w, h] = size
+      const dpr = window.devicePixelRatio || 1
+      const cw = Math.round(w * dpr)
+      const ch = Math.round(h * dpr)
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw
+        canvas.height = ch
+        canvas.style.width = `${w}px`
+        canvas.style.height = `${h}px`
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+
+      const res = map.getView().getResolution() ?? 1
+
+      // 视口内可见点判定，用于放大后为长线/大面要素选取近在眼前的锚点
+      const inView = (c: number[]) => {
+        const p = map.getPixelFromCoordinate(c as [number, number])
+        if (!p) return false
+        return p[0] > 8 && p[0] < w - 8 && p[1] > 8 && p[1] < h - 8
+      }
+
+      /** 锚点：优先取视口内可见几何段的中点，避免放大后要素中心落到视野外 */
+      const visibleAnchor = (geom: OlGeometry | undefined): [number, number] | null => {
+        if (!geom) return null
+        const type = geom.getType()
+        if (type === 'Point') return (geom as Point).getCoordinates() as [number, number]
+        if (type === 'LineString') {
+          const pts = (geom as LineString).getCoordinates()
+          const vis = pts.filter(inView)
+          if (vis.length) return vis[Math.floor(vis.length / 2)] as [number, number]
+          return null
+        }
+        if (type === 'Polygon') {
+          const ip = (geom as Polygon).getInteriorPoint().getCoordinates() as [number, number]
+          if (inView(ip)) return ip
+          const ring = (geom as Polygon).getCoordinates()[0] as number[][]
+          const vis = ring.filter(inView)
+          if (vis.length) return vis[Math.floor(vis.length / 2)] as [number, number]
+          return null
+        }
+        return null
+      }
+
+      const placed: [number, number, number, number][] = []
+      const free = (x: number, y: number, tw: number, th: number) => {
+        const x0 = x - tw / 2
+        const x1 = x + tw / 2
+        const y0 = y - th / 2
+        const y1 = y + th / 2
+        for (const p of placed) {
+          if (x0 <= p[2] && x1 >= p[0] && y0 <= p[3] && y1 >= p[1]) return false
+        }
+        placed.push([x0, y0, x1, y1])
+        return true
+      }
+
+      const draw = (
+        coord: [number, number],
+        text: string,
+        font: string,
+        fontSize: number,
+        color: string,
+      ) => {
+        if (!text) return
+        // 要素几何坐标已是 EPSG:3857 投影坐标，直接转屏幕像素
+        const pixel = map.getPixelFromCoordinate(coord)
+        if (!pixel) return
+        const [x, y] = pixel
+        if (x < -60 || x > w + 60 || y < -30 || y > h + 30) return
+        if (!free(x, y, fontSize * text.length * 0.96, fontSize * 1.5)) return
+        ctx.font = font
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.lineWidth = Math.max(2.6, fontSize * 0.34)
+        ctx.strokeStyle = LABEL_HALO
+        ctx.strokeText(text, x, y)
+        ctx.fillStyle = color
+        ctx.fillText(text, x, y)
+      }
+
+      // 功能分区名称：优先级最高，先占位
+      if (res < 40) {
+        for (const f of featuresOf('districts')) {
+          const a = visibleAnchor(f.getGeometry())
+          if (a)
+            draw(
+              a,
+              String(f.get('name') ?? ''),
+              `600 13px ${FONT}`,
+              13,
+              '#2b3a46',
+            )
+        }
+      }
+
+      // 生态绿地
+      if (res < 18) {
+        for (const f of featuresOf('parks')) {
+          const a = visibleAnchor(f.getGeometry())
+          if (!a) continue
+          const cfg =
+            PARK_COLORS[String(f.get('parkType') ?? '')] ?? PARK_COLORS['城市公园']
+          draw(a, String(f.get('name') ?? ''), `600 10.5px ${FONT}`, 10.5, cfg.label)
+        }
+      }
+
+      // 洼地 / 滞洪区
+      if (res < 6) {
+        for (const f of featuresOf('lowland')) {
+          const a = visibleAnchor(f.getGeometry())
+          if (a) draw(a, String(f.get('name') ?? ''), `600 11px ${FONT}`, 11, '#8a5216')
+        }
+      }
+
+      // 河道、排水渠与泵站
+      if (res < 5.5) {
+        for (const f of featuresOf('water')) {
+          const geom = f.getGeometry()
+          if (!geom || geom.getType() === 'Polygon') continue
+          const a = visibleAnchor(geom)
+          if (!a) continue
+          const fs = String(f.get('kind') ?? '') === 'pump' ? 10 : 11
+          draw(a, String(f.get('name') ?? ''), `600 ${fs}px ${FONT}`, fs, '#12566e')
+        }
+      }
+
+      // 道路名称：数量最多，最后绘制并做碰撞剔除
+      if (res < 5.5) {
+        for (const f of featuresOf('roads')) {
+          const a = visibleAnchor(f.getGeometry())
+          if (a) draw(a, String(f.get('name') ?? ''), `500 10.5px ${FONT}`, 10.5, '#39434e')
+        }
+      }
+    }
+
+    map.on('postrender', render)
+    render()
+    return () => {
+      map.un('postrender', render)
+    }
+  }, [])
+
   /* ---------------- 河道水流动画（放大后显现，独立画布轻量绘制） ---------------- */
   useEffect(() => {
     const map = mapRef.current
@@ -1039,6 +1206,7 @@ export default function MapView(props: MapViewProps) {
       <div className="map-canvas" ref={containerRef} />
       <canvas className="river-flow-canvas" ref={flowRef} aria-hidden="true" />
       <canvas className="building-3d-canvas" ref={b3dRef} aria-hidden="true" />
+      <canvas className="map-label-canvas" ref={labelRef} aria-hidden="true" />
       <div className="map-tooltip" ref={tooltipRef}>
         <span className="map-tooltip-title" ref={tipTitleRef} />
         <span className="map-tooltip-sub" ref={tipSubRef} />

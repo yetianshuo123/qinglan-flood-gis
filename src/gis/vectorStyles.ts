@@ -4,11 +4,10 @@ import {
   RegularShape,
   Stroke,
   Style,
-  Text,
 } from 'ol/style'
 import type { FeatureLike } from 'ol/Feature'
 
-const FONT = '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
+export const FONT = '"Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif'
 
 export const BUILDING_COLORS: Record<string, string> = {
   住宅: '#8fa7c2',
@@ -29,7 +28,7 @@ export const ROAD_CLASS_STYLE = {
 
 export type RoadClassKey = keyof typeof ROAD_CLASS_STYLE
 
-const LABEL_HALO = 'rgba(5, 10, 14, 0.92)'
+export const LABEL_HALO = 'rgba(255, 255, 255, 0.94)'
 
 const LOWLAND_FILL = new Fill({ color: 'rgba(224, 155, 70, 0.14)' })
 const LOWLAND_STROKE = new Stroke({
@@ -38,75 +37,44 @@ const LOWLAND_STROKE = new Stroke({
   lineDash: [8, 5],
 })
 
-export function lowlandStyle(feature: FeatureLike, resolution: number): Style[] {
-  const styles: Style[] = [
-    new Style({ fill: LOWLAND_FILL, stroke: LOWLAND_STROKE }),
-  ]
-  if (resolution < 6) {
-    styles.push(
-      new Style({
-        text: new Text({
-          text: String(feature.get('name') ?? ''),
-          font: `600 11px ${FONT}`,
-          fill: new Fill({ color: '#f6c98a' }),
-          stroke: new Stroke({ color: LABEL_HALO, width: 3 }),
-          offsetY: -2,
-        }),
-      }),
-    )
-  }
-  return styles
+export function lowlandStyle(_feature?: FeatureLike, _resolution?: number): Style {
+  return new Style({ fill: LOWLAND_FILL, stroke: LOWLAND_STROKE })
 }
 
 export const PARK_COLORS: Record<string, { fill: string; stroke: string; label: string }> = {
   森林公园: {
     fill: 'rgba(84, 118, 76, 0.34)',
     stroke: 'rgba(126, 168, 116, 0.55)',
-    label: '#d3e8c6',
+    label: '#3f6636',
   },
   湿地公园: {
     fill: 'rgba(52, 126, 160, 0.26)',
     stroke: 'rgba(96, 172, 210, 0.5)',
-    label: '#bfe6f2',
+    label: '#14566e',
   },
   滨江生态缓冲带: {
     fill: 'rgba(96, 138, 100, 0.22)',
     stroke: 'rgba(132, 174, 120, 0.45)',
-    label: '#cfe6c2',
+    label: '#3a6b3a',
   },
   城市公园: {
     fill: 'rgba(92, 132, 84, 0.28)',
     stroke: 'rgba(128, 170, 112, 0.5)',
-    label: '#d5e9c8',
+    label: '#40703c',
   },
 }
 
-export function parkStyle(feature: FeatureLike, resolution: number): Style[] {
+export function parkStyle(feature: FeatureLike, _resolution?: number): Style {
   const parkType = String(feature.get('parkType') ?? '城市公园')
   const cfg = PARK_COLORS[parkType] ?? PARK_COLORS['城市公园']
-  const styles: Style[] = [
-    new Style({
-      fill: new Fill({ color: cfg.fill }),
-      stroke: new Stroke({ color: cfg.stroke, width: 1, lineDash: [7, 5] }),
-    }),
-  ]
-  if (resolution < 18) {
-    styles.push(
-      new Style({
-        text: new Text({
-          text: String(feature.get('name') ?? ''),
-          font: `600 10.5px ${FONT}`,
-          fill: new Fill({ color: cfg.label }),
-          stroke: new Stroke({ color: LABEL_HALO, width: 3 }),
-        }),
-      }),
-    )
-  }
-  return styles
+  return new Style({
+    fill: new Fill({ color: cfg.fill }),
+    stroke: new Stroke({ color: cfg.stroke, width: 1, lineDash: [7, 5] }),
+  })
 }
 
-export function districtStyle(feature: FeatureLike, resolution: number): Style {
-  const style = new Style({
+export function districtStyle(_feature?: FeatureLike, _resolution?: number): Style {
+  return new Style({
     fill: new Fill({ color: 'rgba(255, 255, 255, 0.015)' }),
     stroke: new Stroke({
       color: 'rgba(150, 176, 192, 0.42)',
@@ -114,19 +82,6 @@ export function districtStyle(feature: FeatureLike, resolution: number): Style {
       lineDash: [9, 7],
     }),
   })
-  if (resolution < 40) {
-    style.setText(
-      new Text({
-        text: String(feature.get('name') ?? ''),
-        font: `600 13px ${FONT}`,
-        fill: new Fill({ color: 'rgba(219, 232, 240, 0.88)' }),
-        stroke: new Stroke({ color: LABEL_HALO, width: 3.5 }),
-        textAlign: 'center',
-        padding: [2, 4, 2, 4],
-      }),
-    )
-  }
-  return style
 }
 
 const buildingStyleCache = new globalThis.Map<string, Style>()
@@ -144,10 +99,10 @@ export function buildingStyle(feature: FeatureLike): Style {
   return style
 }
 
-export function roadStyle(feature: FeatureLike, resolution: number): Style[] {
+export function roadStyle(feature: FeatureLike, _resolution?: number): Style[] {
   const cls = String(feature.get('roadClass') ?? '支路') as RoadClassKey
   const cfg = ROAD_CLASS_STYLE[cls] ?? ROAD_CLASS_STYLE['支路']
-  const styles: Style[] = [
+  return [
     new Style({
       stroke: new Stroke({
         color: cfg.casing,
@@ -165,54 +120,22 @@ export function roadStyle(feature: FeatureLike, resolution: number): Style[] {
       }),
     }),
   ]
-  if (resolution < 5.5) {
-    styles.push(
-      new Style({
-        text: new Text({
-          text: String(feature.get('name') ?? ''),
-          font: `500 10.5px ${FONT}`,
-          placement: 'line',
-          fill: new Fill({ color: '#eef4f8' }),
-          stroke: new Stroke({ color: LABEL_HALO, width: 3 }),
-          overflow: true,
-          maxAngle: 0.55,
-        }),
-      }),
-    )
-  }
-  return styles
 }
 
-export function waterStyle(feature: FeatureLike, resolution: number): Style | Style[] {
+export function waterStyle(feature: FeatureLike, _resolution?: number): Style | Style[] {
   const kind = String(feature.get('kind') ?? '')
   const geomType = feature.getGeometry()?.getType()
 
   if (geomType === 'Point') {
-    const styles: Style[] = [
-      new Style({
-        image: new RegularShape({
-          points: 4,
-          radius: 7,
-          angle: Math.PI / 4,
-          fill: new Fill({ color: '#0d3a49' }),
-          stroke: new Stroke({ color: '#7ed6e4', width: 1.8 }),
-        }),
+    return new Style({
+      image: new RegularShape({
+        points: 4,
+        radius: 7,
+        angle: Math.PI / 4,
+        fill: new Fill({ color: '#0d3a49' }),
+        stroke: new Stroke({ color: '#7ed6e4', width: 1.8 }),
       }),
-    ]
-    if (resolution < 5.5) {
-      styles.push(
-        new Style({
-          text: new Text({
-            text: String(feature.get('name') ?? ''),
-            font: `500 10px ${FONT}`,
-            offsetY: -14,
-            fill: new Fill({ color: '#bdeaf2' }),
-            stroke: new Stroke({ color: LABEL_HALO, width: 3 }),
-          }),
-        }),
-      )
-    }
-    return styles
+    })
   }
 
   if (geomType === 'Polygon') {

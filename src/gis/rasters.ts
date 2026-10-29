@@ -132,6 +132,60 @@ export function rasterLevelFor(zoom: number): RasterLevel {
   return { key: 'L1', scale: 6, terrainScale: 6, bicubic: true, smoothDepth: true }
 }
 
+/** 为等高线间隔挑选一个"好看"的步长（1/2/5×10^n） */
+export function niceStep(x: number): number {
+  if (!Number.isFinite(x) || x <= 0) return 1
+  const p = Math.pow(10, Math.floor(Math.log10(x)))
+  const n = x / p
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p
+}
+
+/** Marching squares：提取指定高程的等值线段（返回网格索引坐标的线段） */
+function contourSegments(
+  grid: Grid,
+  level: number,
+): [number, number, number, number][] {
+  const segs: [number, number, number, number][] = []
+  const { cols, rows, values } = grid
+  const interp = (
+    x1: number,
+    y1: number,
+    v1: number,
+    x2: number,
+    y2: number,
+    v2: number,
+  ): [number, number] => {
+    const t = (level - v1) / (v2 - v1 || 1e-9)
+    return [x1 + (x2 - x1) * t, y1 + (y2 - y1) * t]
+  }
+  for (let r = 0; r < rows - 1; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      const v00 = values[r * cols + c]
+      const v10 = values[r * cols + c + 1]
+      const v11 = values[(r + 1) * cols + c + 1]
+      const v01 = values[(r + 1) * cols + c]
+      if (
+        (v00 < level) === (v10 < level) &&
+        (v10 < level) === (v11 < level) &&
+        (v11 < level) === (v01 < level)
+      )
+        continue
+      const pts: [number, number][] = []
+      if ((v00 < level) !== (v10 < level)) pts.push(interp(c, r, v00, c + 1, r, v10))
+      if ((v10 < level) !== (v11 < level)) pts.push(interp(c + 1, r, v10, c + 1, r + 1, v11))
+      if ((v11 < level) !== (v01 < level)) pts.push(interp(c + 1, r + 1, v11, c, r + 1, v01))
+      if ((v01 < level) !== (v00 < level)) pts.push(interp(c, r + 1, v01, c, r, v00))
+      if (pts.length === 2) {
+        segs.push([pts[0][0], pts[0][1], pts[1][0], pts[1][1]])
+      } else if (pts.length === 4) {
+        segs.push([pts[0][0], pts[0][1], pts[1][0], pts[1][1]])
+        segs.push([pts[2][0], pts[2][1], pts[3][0], pts[3][1]])
+      }
+    }
+  }
+  return segs
+}
+
 export async function createTerrainDataUrl(
   terrain: TerrainGrid,
   scale = 6,
@@ -176,6 +230,51 @@ export async function createTerrainDataUrl(
     if (y1 < h) await yieldToUi()
   }
   ctx.putImageData(img, 0, 0)
+
+  // 等高线：让丘陵、台地、河谷与洼地的起伏可读
+  const interval = niceStep(range / 13)
+  const toX = (c: number) => (c / (grid.cols - 1)) * (w - 1)
+  const toY = (r: number) => (r / (grid.rows - 1)) * (h - 1)
+  const baseLine = Math.max(0.8, scale * 0.1)
+  ctx.save()
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  const lineFont = `600 ${Math.max(9, Math.round(9 * Math.max(1, scale / 6)))}px "Noto Sans SC", system-ui, sans-serif`
+  const start = Math.ceil(grid.min / interval) * interval
+  for (let level = start; level <= grid.max; level += interval) {
+    const segs = contourSegments(grid, level)
+    if (!segs.length) continue
+    // 每 5 条设为首曲线（计曲线），加粗加深，便于快速判读高差
+    const index = Math.abs(level % (interval * 5)) < 1e-6
+    ctx.strokeStyle = index ? 'rgba(26, 36, 26, 0.8)' : 'rgba(44, 58, 44, 0.46)'
+    ctx.lineWidth = index ? baseLine * 2.1 : baseLine
+    ctx.beginPath()
+    for (const s of segs) {
+      ctx.moveTo(toX(s[0]), toY(s[1]))
+      ctx.lineTo(toX(s[2]), toY(s[3]))
+    }
+    ctx.stroke()
+    // 计曲线标注高程数值（每条曲线取两处，避开画布边缘）
+    if (index) {
+      const label = `${Math.round(level)}`
+      const step = Math.max(1, Math.floor(segs.length / 2))
+      ctx.font = lineFont
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.lineWidth = Math.max(2.6, scale * 0.32)
+      ctx.strokeStyle = 'rgba(242, 240, 230, 0.92)'
+      ctx.fillStyle = 'rgba(58, 74, 54, 0.95)'
+      for (let i = step; i < segs.length; i += step) {
+        const s = segs[i]
+        const mx = (toX(s[0]) + toX(s[2])) / 2
+        const my = (toY(s[1]) + toY(s[3])) / 2
+        if (mx < 22 || mx > w - 22 || my < 16 || my > h - 16) continue
+        ctx.strokeText(label, mx, my)
+        ctx.fillText(label, mx, my)
+      }
+    }
+  }
+  ctx.restore()
   return canvas.toDataURL('image/png')
 }
 
