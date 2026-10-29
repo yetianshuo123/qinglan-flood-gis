@@ -36,14 +36,9 @@ export default function Toolbar(props: ToolbarProps) {
           </svg>
         </div>
         <div className="brand-text">
-          <h1>
-            青澜市城市内涝 GIS
-            <span className="brand-sub">侦测工作台</span>
-          </h1>
+          <h1>澜汀市城市内涝防治地理信息系统</h1>
           <p>
-            <span className="badge-vritual">虚拟城市 · 模拟数据</span>
-            <span className="brand-sep">/</span>
-            Urban Flood Spatial Analysis
+            <span className="badge-vritual">模拟数据</span>
           </p>
         </div>
       </div>

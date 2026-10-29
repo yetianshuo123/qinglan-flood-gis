@@ -21,7 +21,7 @@ import {
 import type { DiffMode } from '../gis/rasters'
 import { RISK_RAMP } from '../gis/rasters'
 import { RISK_LABELS } from '../gis/model'
-import type { SelectionInfo } from '../uiTypes'
+import type { SelectionInfo, PanelMode } from '../uiTypes'
 import { Icon, type IconName } from './Icon'
 
 export type TabId = 'attrs' | 'stats' | 'overlay' | 'scenario' | 'compare'
@@ -56,6 +56,8 @@ interface InspectorPanelProps {
   onDiffVisible: (v: boolean) => void
   diffMode: DiffMode
   onDiffMode: (m: DiffMode) => void
+  mode: PanelMode
+  onMode: (m: PanelMode) => void
 }
 
 const TABS: { id: TabId; label: string; icon: IconName }[] = [
@@ -76,12 +78,71 @@ const TAB_META: Record<TabId, { title: string; desc: string }> = {
 
 export default function InspectorPanel(props: InspectorPanelProps) {
   const meta = TAB_META[props.tab]
+
+  if (props.mode === 'closed') {
+    return (
+      <button
+        type="button"
+        className="panel-reopen panel-reopen--right"
+        title="展开分析面板"
+        onClick={() => props.onMode('open')}
+      >
+        <Icon name="chevron" size={12} className="chevron-flip" />
+        分析面板
+      </button>
+    )
+  }
+
+  if (props.mode === 'collapsed') {
+    return (
+      <aside className="side-panel right-panel is-collapsed">
+        <div className="panel-rail">
+          <button
+            type="button"
+            className="icon-btn"
+            title="展开分析面板"
+            onClick={() => props.onMode('open')}
+          >
+            <Icon name="chevron" size={14} className="chevron-flip" />
+          </button>
+          <span className="panel-rail-label">分析面板</span>
+          <button
+            type="button"
+            className="icon-btn"
+            title="关闭分析面板"
+            onClick={() => props.onMode('closed')}
+          >
+            <Icon name="close" size={13} />
+          </button>
+        </div>
+      </aside>
+    )
+  }
+
   return (
     <aside className="side-panel right-panel">
       <div className="panel-head">
         <div>
           <h2>{meta.title}</h2>
           <p>{meta.desc}</p>
+        </div>
+        <div className="panel-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            title="折叠面板"
+            onClick={() => props.onMode('collapsed')}
+          >
+            <Icon name="chevron" size={13} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="关闭面板"
+            onClick={() => props.onMode('closed')}
+          >
+            <Icon name="close" size={13} />
+          </button>
         </div>
       </div>
 
@@ -127,7 +188,7 @@ function AttrsTab(props: InspectorPanelProps) {
           <Icon name="cursor" size={26} />
         </div>
         <h3>在地图上点选空间要素</h3>
-        <p>点击建筑、道路、河流、排水渠、泵站、低洼区或行政分区，右侧将显示该要素的真实属性与当前情景下的空间关系。</p>
+        <p>点击建筑、道路、河流、排水渠、泵站、绿地、低洼区或行政分区，右侧将显示该要素的真实属性与当前情景下的空间关系。</p>
         <div className="stat-grid stat-grid--2">
           <Metric label="建筑物" value={`${props.city.buildings.features.length} 栋`} />
           <Metric label="道路" value={`${props.city.roads.features.length} 条`} />
@@ -137,9 +198,6 @@ function AttrsTab(props: InspectorPanelProps) {
             value={`${props.city.hydro.features.length + props.city.pumps.features.length} 处`}
           />
         </div>
-        <p className="empty-note">
-          属性值来自被点选要素的几何与属性字段，空间关系按当前降雨情景实时计算。
-        </p>
       </div>
     )
   }
@@ -319,7 +377,6 @@ function StatsTab(props: InspectorPanelProps) {
             </div>
             <h3>在地图上定义查询区域</h3>
             <p>使用「绘制查询区域」在地图上勾画多边形，或使用「点查询」采样任意位置。统计结果全部由已加载的高程、降雨、积水栅格与道路、建筑矢量实时计算。</p>
-            <p className="empty-note">绘制完成后工具会自动回到选择模式，右上角结果随情景模拟实时更新。</p>
           </div>
         )
       )}
@@ -498,7 +555,6 @@ function OverlayTab(props: InspectorPanelProps) {
           </details>
         </article>
       ))}
-      <p className="note">叠加分析基于当前降雨情景的栅格结果与虚拟城市矢量图层实时计算，点击定位按钮可将分析对象居中显示。</p>
     </div>
   )
 }
@@ -679,7 +735,6 @@ function CompareTab(props: InspectorPanelProps) {
           <Icon name="save" size={15} />
           保存当前情景为基准
         </button>
-        <p className="empty-note">基准情景保存的是当前模型栅格快照（积水深度与风险等级）。</p>
       </div>
     )
   }

@@ -7,7 +7,8 @@ export default defineConfig({
   base: process.env.VITE_BASE ?? '/',
   plugins: [react()],
   server: {
-    host: '0.0.0.0',
+    // 监听双栈（IPv4 + IPv6），避免预览代理按 localhost → ::1 解析时连不上
+    host: '::',
     port: 5173,
     strictPort: true,
     allowedHosts: true,

@@ -88,6 +88,15 @@ export interface LowlandProps {
   district: string
 }
 
+export interface ParkProps {
+  kind: 'park'
+  id: string
+  name: string
+  parkType: string
+  areaM2: number
+  district: string
+}
+
 export interface DistrictProps {
   kind: 'district'
   id: string
@@ -105,6 +114,7 @@ export interface CityData {
   hydroAreas: FeatureCollection<Polygon, HydroProps>
   pumps: FeatureCollection<Point, PumpProps>
   lowlands: FeatureCollection<Polygon, LowlandProps>
+  parks: FeatureCollection<Polygon, ParkProps>
   river: Feature<LineString>
   terrain: TerrainGrid
   rainPattern: Float64Array

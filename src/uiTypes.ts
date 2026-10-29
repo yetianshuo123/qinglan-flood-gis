@@ -4,6 +4,7 @@ export type LayerId =
   | 'terrain'
   | 'rainfall'
   | 'water'
+  | 'parks'
   | 'roads'
   | 'buildings'
   | 'lowland'
@@ -17,6 +18,8 @@ export type Tool =
   | 'measure-area'
   | 'query-polygon'
   | 'query-point'
+
+export type PanelMode = 'open' | 'collapsed' | 'closed'
 
 export interface LayerMeta {
   id: LayerId
@@ -49,7 +52,7 @@ export const LAYER_META: LayerMeta[] = [
     name: '行政分区',
     group: '底图与边界',
     kind: '矢量',
-    info: '6 个虚拟分区 · 边界与标注',
+    info: '5 个功能分区 · 边界与标注',
     defaultVisible: true,
     defaultOpacity: 1,
   },
@@ -58,7 +61,7 @@ export const LAYER_META: LayerMeta[] = [
     name: '地形高程',
     group: '地形与降雨',
     kind: '栅格',
-    info: '100×90 网格 · 高程 1.8–37.4 m',
+    info: '168×90 网格 · 丘陵—主城—湿地',
     defaultVisible: true,
     defaultOpacity: 1,
   },
@@ -76,7 +79,16 @@ export const LAYER_META: LayerMeta[] = [
     name: '河流与排水设施',
     group: '水系与排水',
     kind: '矢量',
-    info: '1 条河道 · 5 条排水渠 · 4 座泵站',
+    info: '1 条河道 · 4 条排水渠 · 4 座泵站',
+    defaultVisible: true,
+    defaultOpacity: 1,
+  },
+  {
+    id: 'parks',
+    name: '生态绿地',
+    group: '城市设施',
+    kind: '矢量',
+    info: '森林公园 · 湿地公园 · 滨江缓冲带',
     defaultVisible: true,
     defaultOpacity: 1,
   },
@@ -85,7 +97,7 @@ export const LAYER_META: LayerMeta[] = [
     name: '道路网络',
     group: '城市设施',
     kind: '矢量',
-    info: '19 条道路 · 含等级与长度',
+    info: '三横三纵一环 · 含等级与长度',
     defaultVisible: true,
     defaultOpacity: 1,
   },
@@ -103,7 +115,7 @@ export const LAYER_META: LayerMeta[] = [
     name: '低洼区域',
     group: '内涝专题',
     kind: '矢量',
-    info: '5 处洼地 · 含滞蓄属性',
+    info: '4 处洼地 · 含滞蓄属性',
     defaultVisible: true,
     defaultOpacity: 1,
   },

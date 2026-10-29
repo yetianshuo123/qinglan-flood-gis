@@ -656,6 +656,45 @@ export function buildFeatureDetail(
     }
   }
 
+  if (kind === 'park') {
+    const ring = (geometry as unknown as { coordinates: LonLat[][] }).coordinates[0]
+    const stats = computeAreaStats(city, model, ring)
+    const floodedPct = stats.areaM2 ? (stats.floodedAreaM2 / stats.areaM2) * 100 : 0
+    return {
+      kind: '绿地',
+      id: String(props.id),
+      title: String(props.name),
+      subtitle: `${String(props.parkType)} · ${String(props.district)}`,
+      sections: [
+        {
+          title: '绿地概况',
+          rows: [
+            { label: '绿地类型', value: String(props.parkType) },
+            { label: '绿地面积', value: formatArea(Number(props.areaM2)) },
+          ],
+        },
+        {
+          title: '当前情景积涝',
+          rows: [
+            {
+              label: '积水面积占比',
+              value: `${floodedPct.toFixed(1)}%`,
+              tone: floodedPct > 20 ? 'danger' : floodedPct > 5 ? 'warn' : 'ok',
+            },
+            {
+              label: '平均高程',
+              value: stats.avgElev === null ? '—' : `${stats.avgElev.toFixed(1)} m`,
+            },
+            {
+              label: '高风险及以上面积',
+              value: formatArea(stats.riskAreaM2[3] + stats.riskAreaM2[4]),
+            },
+          ],
+        },
+      ],
+    }
+  }
+
   if (kind === 'district') {
     const ring = (geometry as unknown as { coordinates: LonLat[][] }).coordinates[0]
     const stats = computeAreaStats(city, model, ring)

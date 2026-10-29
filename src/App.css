@@ -27,6 +27,20 @@
   cursor: crosshair !important;
 }
 
+.building-3d-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.river-flow-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
 /* ============================ 顶部工具栏 ============================ */
 
 .toolbar {
@@ -71,6 +85,7 @@
   letter-spacing: 0.01em;
   color: #eef7fb;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .brand-sub {
@@ -268,6 +283,80 @@
   color: var(--accent);
   border-color: rgba(76, 201, 240, 0.32);
   background: var(--accent-bg);
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.chevron-flip {
+  transform: rotate(180deg);
+}
+
+.side-panel.is-collapsed {
+  width: 38px;
+}
+
+.panel-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 10px 0;
+}
+
+.panel-rail-label {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.18em;
+  font-size: 10.5px;
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+.panel-rail .icon-btn:last-child {
+  margin-top: auto;
+}
+
+.panel-reopen {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 5px;
+  writing-mode: vertical-rl;
+  letter-spacing: 0.16em;
+  font-size: 10.5px;
+  color: var(--text-soft);
+  border: 1px solid var(--line);
+  background: rgba(12, 20, 27, 0.92);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.panel-reopen:hover {
+  color: #eaf7fd;
+  border-color: rgba(76, 201, 240, 0.42);
+  background: rgba(16, 30, 40, 0.95);
+}
+
+.panel-reopen--left {
+  left: 0;
+  border-left: 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.panel-reopen--right {
+  right: 0;
+  border-right: 0;
+  border-radius: 6px 0 0 6px;
 }
 
 .panel-body {
@@ -600,8 +689,8 @@ input[type='range']::-moz-range-thumb {
   height: 8px;
   flex: none;
   transform: rotate(45deg);
-  background: #0d3a49;
-  border: 1.5px solid #7ed6e4;
+  background: #ffffff;
+  border: 1.5px solid #2f8fb5;
 }
 
 .polygon-swatch {
@@ -609,15 +698,15 @@ input[type='range']::-moz-range-thumb {
   height: 10px;
   flex: none;
   border-radius: 2px;
-  border: 1px dashed rgba(240, 178, 90, 0.9);
-  background: rgba(224, 155, 70, 0.14);
+  border: 1px dashed rgba(226, 142, 58, 0.9);
+  background: rgba(240, 168, 80, 0.18);
 }
 
 .boundary-swatch {
   width: 16px;
   height: 0;
   flex: none;
-  border-top: 1px dashed rgba(150, 176, 192, 0.6);
+  border-top: 1px dashed rgba(160, 168, 160, 0.7);
 }
 
 /* ============================ 属性面板 ============================ */
@@ -1553,10 +1642,10 @@ input[type='range']::-moz-range-thumb {
   z-index: 40;
   max-width: 240px;
   padding: 6px 9px;
-  border: 1px solid rgba(120, 180, 205, 0.35);
+  border: 1px solid rgba(120, 134, 140, 0.32);
   border-radius: 6px;
-  background: rgba(8, 14, 19, 0.94);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 22px rgba(64, 74, 80, 0.18);
   pointer-events: none;
 }
 
@@ -1564,14 +1653,14 @@ input[type='range']::-moz-range-thumb {
   display: block;
   font-size: 11.5px;
   font-weight: 600;
-  color: #eaf5fb;
+  color: #2f363b;
 }
 
 .map-tooltip-sub {
   display: block;
   margin-top: 1px;
   font-size: 9.5px;
-  color: #8fb0c2;
+  color: #737d84;
 }
 
 .map-measure-card {
@@ -1583,42 +1672,32 @@ input[type='range']::-moz-range-thumb {
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid rgba(240, 179, 78, 0.35);
+  border: 1px solid rgba(224, 138, 0, 0.38);
   border-radius: 7px;
-  background: rgba(22, 18, 9, 0.92);
+  background: rgba(255, 253, 246, 0.94);
   backdrop-filter: blur(8px);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 10px 24px rgba(64, 74, 80, 0.16);
 }
 
 .map-measure-text {
   font-size: 11.5px;
-  color: #f7d28c;
+  color: #a86800;
   font-variant-numeric: tabular-nums;
 }
 
 .map-measure-clear {
   padding: 2px 6px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(120, 134, 140, 0.34);
   border-radius: 4px;
   background: transparent;
-  color: var(--text-dim);
+  color: #737d84;
   font-size: 10px;
   cursor: pointer;
 }
 
 .map-measure-clear:hover {
-  color: #f7d28c;
-}
-
-.map-corner-note {
-  position: absolute;
-  left: calc(var(--left-w) + 24px);
-  bottom: calc(var(--status-h) + 12px);
-  z-index: 15;
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  color: rgba(160, 186, 200, 0.5);
-  pointer-events: none;
+  color: #a86800;
+  border-color: rgba(224, 138, 0, 0.42);
 }
 
 /* ============================ OpenLayers 控件 ============================ */
@@ -1629,6 +1708,7 @@ input[type='range']::-moz-range-thumb {
   bottom: calc(var(--status-h) + 26px) !important;
   top: auto !important;
   left: auto !important;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1639,36 +1719,85 @@ input[type='range']::-moz-range-thumb {
 .gis-zoom button {
   width: 27px;
   height: 27px;
-  border: 1px solid var(--line) !important;
+  border: 1px solid rgba(120, 134, 140, 0.3) !important;
   border-radius: 5px !important;
-  background: rgba(12, 20, 27, 0.92) !important;
-  color: #cfe6f2 !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: #3f474c !important;
   font-size: 15px !important;
   line-height: 1 !important;
   cursor: pointer;
+  box-shadow: 0 2px 6px rgba(64, 74, 80, 0.12);
 }
 
 .gis-zoom button:hover {
-  background: rgba(56, 189, 248, 0.18) !important;
-  color: #eaf7fd !important;
+  background: rgba(236, 244, 248, 0.98) !important;
+  color: #0d8bd0 !important;
+  border-color: rgba(13, 139, 208, 0.4) !important;
 }
 
 .gis-scale {
   position: absolute;
-  right: calc(var(--right-w) + 24px) !important;
-  bottom: calc(var(--status-h) + 82px) !important;
+  right: calc(var(--right-w) + 22px) !important;
+  bottom: calc(var(--status-h) + 94px) !important;
   top: auto !important;
   left: auto !important;
-  padding: 2px 4px;
-  border-radius: 3px;
-  background: rgba(8, 14, 19, 0.6);
+  z-index: 10;
+  padding: 3px 7px 4px;
+  border: 1px solid rgba(120, 134, 140, 0.28);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.82);
 }
 
-.gis-scale .ol-scale-line-inner {
-  border: 1px solid rgba(190, 214, 226, 0.7);
-  border-top: none;
-  color: #c6d8e2;
+.gis-scale-inner {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 0 0 3px;
+  border: 0;
+  border-bottom: 1px solid rgba(90, 100, 106, 0.55);
+  color: #4a5359;
+  font-family: var(--font-mono);
   font-size: 9px;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+  text-align: center;
+}
+
+.gis-scale-inner::before,
+.gis-scale-inner::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  width: 1px;
+  height: 4px;
+  background: rgba(90, 100, 106, 0.55);
+}
+
+.gis-scale-inner::before {
+  left: 0;
+}
+
+.gis-scale-inner::after {
+  right: 0;
+}
+
+/* 面板折叠或关闭后，地图控件与测量卡片贴近边缘 */
+.app-shell.panel-right-closed .gis-zoom,
+.app-shell.panel-right-closed .gis-scale {
+  right: 40px !important;
+}
+
+.app-shell.panel-right-collapsed .gis-zoom,
+.app-shell.panel-right-collapsed .gis-scale {
+  right: 64px !important;
+}
+
+.app-shell.panel-left-closed .map-measure-card {
+  left: 24px;
+}
+
+.app-shell.panel-left-collapsed .map-measure-card {
+  left: 64px;
 }
 
 /* ============================ 响应式 ============================ */

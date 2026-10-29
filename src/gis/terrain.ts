@@ -30,7 +30,7 @@ export interface TerrainInput {
   depressions: Depression[]
 }
 
-export const RAIN_STORM = { lon: 120.061, lat: 30.04, sigmaLon: 0.03, sigmaLat: 0.022 }
+export const RAIN_STORM = { lon: 120.093, lat: 30.041, sigmaLon: 0.032, sigmaLat: 0.019 }
 
 export function buildTerrain(input: TerrainInput): {
   terrain: TerrainGrid
@@ -55,13 +55,20 @@ export function buildTerrain(input: TerrainInput): {
       const lon = west + ((col + 0.5) / cols) * (east - west)
       const lat = north - ((row + 0.5) / rows) * (north - south)
       const nx = (lon - west) / (east - west)
-      const ny = (lat - south) / (north - south)
 
-      let e = 9.5 + 8.5 * ny - 4.2 * nx
-      e += (fbm(lon * 1300, lat * 1300, 3) - 0.5) * 5.4
-      e += 21 * gaussian(lon, lat, 120.019, 30.068, 0.02, 0.015)
-      e += 12 * gaussian(lon, lat, 120.091, 30.072, 0.016, 0.013)
-      e += 6 * gaussian(lon, lat, 120.004, 30.025, 0.012, 0.014)
+      // 地势：北高南低、西高东低，中部另有一处高地
+      let e = 5.0 + 9.0 * clamp((lat - 30.012) / 0.05, 0, 1) + 2.5 * (1 - nx)
+      e += (fbm(lon * 1300, lat * 1300, 3) - 0.5) * 3.4
+      // 北部丘陵生态屏障
+      e += 42 * gaussian(lon, lat, 120.075, 30.0755, 0.075, 0.0085)
+      // 西部台地，地势较高
+      e += 11 * gaussian(lon, lat, 120.018, 30.045, 0.016, 0.018)
+      // 中部高地：医院、应急指挥中心与变电站所在
+      e += 9 * gaussian(lon, lat, 120.1, 30.047, 0.0135, 0.0095)
+      // 南部湿地与滞洪区低洼地
+      e -= 4.5 * gaussian(lon, lat, 120.095, 30.008, 0.045, 0.01)
+      // 东部上游来水下游、主导风向下方的低平产业用地
+      e -= 3.0 * gaussian(lon, lat, 120.15, 30.03, 0.012, 0.022)
 
       for (const d of depressions) {
         e -= d.amp * gaussian(lon, lat, d.lon, d.lat, d.rx, d.ry, d.rot)
@@ -69,8 +76,8 @@ export function buildTerrain(input: TerrainInput): {
 
       const riverD = pointToLineDistanceMeters(lon, lat, riverCoords)
       riverDistM[i] = riverD
-      e -= 9.5 * Math.exp(-(riverD * riverD) / (2 * 300 * 300))
-      e -= 3.2 * Math.exp(-(riverD * riverD) / (2 * 1200 * 1200))
+      e -= 8.5 * Math.exp(-(riverD * riverD) / (2 * 300 * 300))
+      e -= 2.8 * Math.exp(-(riverD * riverD) / (2 * 1100 * 1100))
 
       let drainD = Infinity
       for (const canal of canalCoords) {
@@ -83,16 +90,20 @@ export function buildTerrain(input: TerrainInput): {
       }
       pumpDistM[i] = pumpD
 
-      dem.values[i] = Math.max(1.8, e)
+      dem.values[i] = Math.max(2.0, e)
 
+      // 开发强度：北部林地与南部湿地趋近自然下垫面
+      const dev = clamp((lat - 30.018) / 0.018, 0, 1) * clamp((30.07 - lat) / 0.008, 0, 1)
       const u = Math.max(
         0.05,
         Math.min(
           0.95,
-          0.08 +
-            0.78 * gaussian(lon, lat, 120.057, 30.036, 0.03, 0.024) +
-            0.24 * gaussian(lon, lat, 120.026, 30.055, 0.016, 0.012) +
-            (fbm(lon * 700, lat * 700, 11) - 0.5) * 0.1,
+          0.05 +
+            dev *
+              (0.85 * gaussian(lon, lat, 120.096, 30.043, 0.026, 0.016) +
+                0.45 * gaussian(lon, lat, 120.028, 30.043, 0.015, 0.017) +
+                0.55 * gaussian(lon, lat, 120.138, 30.036, 0.014, 0.019) +
+                (fbm(lon * 700, lat * 700, 11) - 0.5) * 0.08),
         ),
       )
       urbanity[i] = u
@@ -100,7 +111,7 @@ export function buildTerrain(input: TerrainInput): {
       runoffCoef[i] = 0.5 + 0.44 * u
 
       const g = gaussian(lon, lat, RAIN_STORM.lon, RAIN_STORM.lat, RAIN_STORM.sigmaLon, RAIN_STORM.sigmaLat)
-      const g2 = gaussian(lon, lat, 120.024, 30.055, 0.018, 0.014)
+      const g2 = gaussian(lon, lat, 120.028, 30.048, 0.018, 0.013)
       rainPattern[i] = 0.72 + 0.36 * g + 0.12 * g2 + (fbm(lon * 900, lat * 900, 19) - 0.5) * 0.12
     }
   }

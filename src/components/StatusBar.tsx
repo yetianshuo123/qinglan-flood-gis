@@ -61,10 +61,6 @@ export default function StatusBar(props: StatusBarProps) {
         <Icon name="info" size={12} />
         简化模型 · 非水动力
       </span>
-      <span className="status-item status-virtual">
-        <Icon name="layers" size={12} />
-        虚拟城市数据
-      </span>
     </footer>
   )
 }

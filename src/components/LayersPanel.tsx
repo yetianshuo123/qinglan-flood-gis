@@ -6,6 +6,7 @@ import {
   type LayerId,
   type LayerState,
   type LayerStates,
+  type PanelMode,
 } from '../uiTypes'
 import type { CityData, ModelResult } from '../gis/types'
 import type { DiffMode } from '../gis/rasters'
@@ -13,6 +14,7 @@ import { DEPTH_CLASSES, RISK_RAMP } from '../gis/rasters'
 import {
   BUILDING_COLORS,
   BUILDING_TYPES,
+  PARK_COLORS,
   ROAD_CLASS_STYLE,
 } from '../gis/vectorStyles'
 import { Icon } from './Icon'
@@ -28,6 +30,8 @@ interface LayersPanelProps {
   diffMode: DiffMode
   onDiffVisible: (v: boolean) => void
   onDiffMode: (m: DiffMode) => void
+  mode: PanelMode
+  onMode: (m: PanelMode) => void
 }
 
 function LegendBlock({
@@ -55,21 +59,78 @@ function LayersPanel(props: LayersPanelProps) {
   const rainMax = Math.round(props.model.rain.max)
   const off = (id: LayerId) => !props.layerStates[id].visible
 
+  if (props.mode === 'closed') {
+    return (
+      <button
+        type="button"
+        className="panel-reopen panel-reopen--left"
+        title="展开图层管理"
+        onClick={() => props.onMode('open')}
+      >
+        <Icon name="chevron" size={12} />
+        图层管理
+      </button>
+    )
+  }
+
+  if (props.mode === 'collapsed') {
+    return (
+      <aside className="side-panel left-panel is-collapsed">
+        <div className="panel-rail">
+          <button
+            type="button"
+            className="icon-btn"
+            title="展开图层管理"
+            onClick={() => props.onMode('open')}
+          >
+            <Icon name="chevron" size={14} />
+          </button>
+          <span className="panel-rail-label">图层管理</span>
+          <button
+            type="button"
+            className="icon-btn"
+            title="关闭图层管理"
+            onClick={() => props.onMode('closed')}
+          >
+            <Icon name="close" size={13} />
+          </button>
+        </div>
+      </aside>
+    )
+  }
+
   return (
     <aside className="side-panel left-panel">
       <div className="panel-head">
         <div>
           <h2>图层管理</h2>
-          <p>9 个空间图层 · 虚拟城市数据</p>
         </div>
-        <button
-          type="button"
-          className="icon-btn"
-          title="恢复默认图层状态"
-          onClick={props.onReset}
-        >
-          <Icon name="reset" size={15} />
-        </button>
+        <div className="panel-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            title="恢复默认图层状态"
+            onClick={props.onReset}
+          >
+            <Icon name="reset" size={15} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="折叠面板"
+            onClick={() => props.onMode('collapsed')}
+          >
+            <Icon name="chevron" size={13} className="chevron-flip" />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="关闭面板"
+            onClick={() => props.onMode('closed')}
+          >
+            <Icon name="close" size={13} />
+          </button>
+        </div>
       </div>
 
       <div className="panel-body">
@@ -118,7 +179,15 @@ function LayersPanel(props: LayersPanelProps) {
                         </button>
                         <div className="layer-label">
                           <span className="layer-name">{meta.name}</span>
-                          <span className="layer-info">{meta.info}</span>
+                          <span className="layer-info">
+                            {meta.id === 'buildings'
+                              ? `${props.city.buildings.features.length} 栋建筑 · 含类型与高程`
+                              : meta.id === 'roads'
+                                ? `${props.city.roads.features.length} 条道路 · 含等级与长度`
+                                : meta.id === 'parks'
+                                  ? `${props.city.parks.features.length} 处绿地 · 森林/湿地/缓冲带`
+                                  : meta.info}
+                          </span>
                         </div>
                         <span
                           className={`layer-kind ${
@@ -129,12 +198,12 @@ function LayersPanel(props: LayersPanelProps) {
                         </span>
                       </div>
                       <div className="layer-opacity">
-                        <span className="opacity-label">透明度</span>
                         <input
                           type="range"
                           min={0}
                           max={100}
                           step={1}
+                          aria-label={`${meta.name}透明度`}
                           value={Math.round(state.opacity * 100)}
                           onChange={(e) =>
                             props.onChange(meta.id, {
@@ -293,6 +362,20 @@ function LayersPanel(props: LayersPanelProps) {
             </div>
           </LegendBlock>
 
+          <LegendBlock title="生态绿地" off={off('parks')}>
+            <div className="legend-rows">
+              {(['森林公园', '湿地公园', '滨江生态缓冲带'] as const).map((t) => (
+                <div className="legend-row" key={t}>
+                  <i
+                    className="swatch"
+                    style={{ background: PARK_COLORS[t].fill.replace(/0\.\d+\)/, '0.9)') }}
+                  />
+                  <span>{t}</span>
+                </div>
+              ))}
+            </div>
+          </LegendBlock>
+
           <LegendBlock title="建筑物" off={off('buildings')}>
             <div className="legend-rows legend-rows--grid">
               {BUILDING_TYPES.map((t) => (
@@ -346,11 +429,6 @@ function LayersPanel(props: LayersPanelProps) {
             </LegendBlock>
           )}
         </section>
-      </div>
-
-      <div className="panel-foot">
-        <Icon name="info" size={13} />
-        <span>所有图层均为虚拟城市模拟数据</span>
       </div>
     </aside>
   )

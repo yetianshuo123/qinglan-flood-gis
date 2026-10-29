@@ -57,9 +57,86 @@ function bilinear(grid: Grid, gx: number, gy: number): number {
   )
 }
 
-export function createTerrainDataUrl(terrain: TerrainGrid): string {
+function catmullRom(v0: number, v1: number, v2: number, v3: number, t: number): number {
+  return (
+    0.5 *
+    (2 * v1 +
+      (-v0 + v2) * t +
+      (2 * v0 - 5 * v1 + 4 * v2 - v3) * t * t +
+      (-v0 + 3 * v1 - 3 * v2 + v3) * t * t * t)
+  )
+}
+
+/** 双三次（Catmull-Rom）重采样，用于放大后的地形细节重建 */
+function bicubic(grid: Grid, gx: number, gy: number): number {
+  const x1 = Math.floor(gx)
+  const y1 = Math.floor(gy)
+  const fx = gx - x1
+  const fy = gy - y1
+  const at = (r: number, c: number) =>
+    grid.values[
+      Math.max(0, Math.min(grid.rows - 1, r)) * grid.cols +
+        Math.max(0, Math.min(grid.cols - 1, c))
+    ]
+  const rows = [0, 1, 2, 3].map((j) =>
+    catmullRom(
+      at(y1 - 1 + j, x1 - 1),
+      at(y1 - 1 + j, x1),
+      at(y1 - 1 + j, x1 + 1),
+      at(y1 - 1 + j, x1 + 2),
+      fx,
+    ),
+  )
+  return catmullRom(rows[0], rows[1], rows[2], rows[3], fy)
+}
+
+const yieldToUi = () =>
+  new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve())
+    } else {
+      setTimeout(resolve, 0)
+    }
+  })
+
+/** 将像素行划分为若干批次，避免一次性占用主线程造成缩放卡顿 */
+function bands(h: number, count: number): [number, number][] {
+  const size = Math.max(1, Math.ceil(h / count))
+  const out: [number, number][] = []
+  for (let y = 0; y < h; y += size) out.push([y, Math.min(h, y + size)])
+  return out
+}
+
+export interface RasterLevel {
+  key: string
+  /** 专题栅格的像素放大倍数 */
+  scale: number
+  /** 地形晕渲的像素放大倍数 */
+  terrainScale: number
+  /** 地形高程是否使用双三次重采样 */
+  bicubic: boolean
+  /** 连续积水场是否先插值再分级 */
+  smoothDepth: boolean
+}
+
+/** 按缩放级别选择重采样级别（细节层次） */
+export function rasterLevelFor(zoom: number): RasterLevel {
+  if (zoom >= 16.2) {
+    return { key: 'L3', scale: 10, terrainScale: 10, bicubic: true, smoothDepth: true }
+  }
+  if (zoom >= 14.2) {
+    return { key: 'L2', scale: 8, terrainScale: 8, bicubic: true, smoothDepth: true }
+  }
+  return { key: 'L1', scale: 4, terrainScale: 6, bicubic: false, smoothDepth: false }
+}
+
+export async function createTerrainDataUrl(
+  terrain: TerrainGrid,
+  scale = 6,
+  smooth = false,
+): Promise<string> {
   const grid = terrain.dem
-  const scale = 6
+  const sample = smooth ? bicubic : bilinear
   const { canvas, ctx, w, h } = makeCanvas(grid.cols, grid.rows, scale)
   const img = ctx.createImageData(w, h)
   const range = grid.max - grid.min || 1
@@ -70,26 +147,29 @@ export function createTerrainDataUrl(terrain: TerrainGrid): string {
   const zenith = (45 * Math.PI) / 180
   const azSun = (315 * Math.PI) / 180
 
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const gx = (x / (w - 1)) * (grid.cols - 1)
-      const gy = (y / (h - 1)) * (grid.rows - 1)
-      const e = bilinear(grid, gx, gy)
-      const dx = (bilinear(grid, gx + 0.5, gy) - bilinear(grid, gx - 0.5, gy)) / cellW
-      const dy = (bilinear(grid, gx, gy + 0.5) - bilinear(grid, gx, gy - 0.5)) / cellH
-      const slope = Math.atan(Math.hypot(dx, dy))
-      const aspect = Math.atan2(-dx, dy)
-      const hs =
-        Math.cos(zenith) * Math.cos(slope) +
-        Math.sin(zenith) * Math.sin(slope) * Math.cos(azSun - aspect)
-      const shade = Math.max(0.55, Math.min(1.28, 0.72 + hs * 0.55))
-      const [r, g, b] = rampColor((e - grid.min) / range, TERRAIN_STOPS)
-      const idx = (y * w + x) * 4
-      img.data[idx] = Math.min(255, Math.round(r * shade))
-      img.data[idx + 1] = Math.min(255, Math.round(g * shade))
-      img.data[idx + 2] = Math.min(255, Math.round(b * shade))
-      img.data[idx + 3] = 255
+  for (const [y0, y1] of bands(h, 8)) {
+    for (let y = y0; y < y1; y++) {
+      for (let x = 0; x < w; x++) {
+        const gx = (x / (w - 1)) * (grid.cols - 1)
+        const gy = (y / (h - 1)) * (grid.rows - 1)
+        const e = sample(grid, gx, gy)
+        const dx = (bilinear(grid, gx + 0.5, gy) - bilinear(grid, gx - 0.5, gy)) / cellW
+        const dy = (bilinear(grid, gx, gy + 0.5) - bilinear(grid, gx, gy - 0.5)) / cellH
+        const slope = Math.atan(Math.hypot(dx, dy))
+        const aspect = Math.atan2(-dx, dy)
+        const hs =
+          Math.cos(zenith) * Math.cos(slope) +
+          Math.sin(zenith) * Math.sin(slope) * Math.cos(azSun - aspect)
+        const shade = Math.max(0.55, Math.min(1.28, 0.72 + hs * 0.55))
+        const [r, g, b] = rampColor((e - grid.min) / range, TERRAIN_STOPS)
+        const idx = (y * w + x) * 4
+        img.data[idx] = Math.min(255, Math.round(r * shade))
+        img.data[idx + 1] = Math.min(255, Math.round(g * shade))
+        img.data[idx + 2] = Math.min(255, Math.round(b * shade))
+        img.data[idx + 3] = 255
+      }
     }
+    if (y1 < h) await yieldToUi()
   }
   ctx.putImageData(img, 0, 0)
   return canvas.toDataURL('image/png')
@@ -99,26 +179,28 @@ export function rainRange(rain: Grid): { min: number; max: number } {
   return { min: rain.min, max: rain.max }
 }
 
-export function createRainDataUrl(rain: Grid): string {
-  const scale = 4
+export async function createRainDataUrl(rain: Grid, scale = 4): Promise<string> {
   const { canvas, ctx, w, h } = makeCanvas(rain.cols, rain.rows, scale)
   const img = ctx.createImageData(w, h)
   const span = rain.max - rain.min || 1
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const gx = (x / (w - 1)) * (rain.cols - 1)
-      const gy = (y / (h - 1)) * (rain.rows - 1)
-      const t = (bilinear(rain, gx, gy) - rain.min) / span
-      const r = Math.round(lerp(176, 40, t))
-      const g = Math.round(lerp(215, 96, t))
-      const b = Math.round(lerp(238, 178, t))
-      const a = Math.round(lerp(28, 150, t))
-      const idx = (y * w + x) * 4
-      img.data[idx] = r
-      img.data[idx + 1] = g
-      img.data[idx + 2] = b
-      img.data[idx + 3] = a
+  for (const [y0, y1] of bands(h, 6)) {
+    for (let y = y0; y < y1; y++) {
+      for (let x = 0; x < w; x++) {
+        const gx = (x / (w - 1)) * (rain.cols - 1)
+        const gy = (y / (h - 1)) * (rain.rows - 1)
+        const t = (bilinear(rain, gx, gy) - rain.min) / span
+        const r = Math.round(lerp(176, 40, t))
+        const g = Math.round(lerp(215, 96, t))
+        const b = Math.round(lerp(238, 178, t))
+        const a = Math.round(lerp(28, 150, t))
+        const idx = (y * w + x) * 4
+        img.data[idx] = r
+        img.data[idx + 1] = g
+        img.data[idx + 2] = b
+        img.data[idx + 3] = a
+      }
     }
+    if (y1 < h) await yieldToUi()
   }
   ctx.putImageData(img, 0, 0)
   return canvas.toDataURL('image/png')
@@ -131,27 +213,36 @@ export const DEPTH_CLASSES = [
   { min: 0.35, max: 99, label: '≥35 cm', color: 'rgba(7,45,108,0.84)', rgb: [7, 45, 108, 214] },
 ]
 
-export function createDepthDataUrl(depth: Grid): string {
-  const scale = 4
+export async function createDepthDataUrl(
+  depth: Grid,
+  scale = 4,
+  smooth = false,
+): Promise<string> {
   const { canvas, ctx, w, h } = makeCanvas(depth.cols, depth.rows, scale)
   const img = ctx.createImageData(w, h)
-  for (let y = 0; y < h; y++) {
-    const row = Math.min(depth.rows - 1, Math.floor((y / h) * depth.rows))
-    for (let x = 0; x < w; x++) {
-      const col = Math.min(depth.cols - 1, Math.floor((x / w) * depth.cols))
-      const d = depth.values[row * depth.cols + col]
-      const idx = (y * w + x) * 4
-      if (d < DEPTH_CLASSES[0].min) {
-        img.data[idx + 3] = 0
-        continue
+  for (const [y0, y1] of bands(h, 6)) {
+    for (let y = y0; y < y1; y++) {
+      const gy = (y / (h - 1)) * (depth.rows - 1)
+      const row = Math.min(depth.rows - 1, Math.floor((y / h) * depth.rows))
+      for (let x = 0; x < w; x++) {
+        const col = Math.min(depth.cols - 1, Math.floor((x / w) * depth.cols))
+        const d = smooth
+          ? bilinear(depth, (x / (w - 1)) * (depth.cols - 1), gy)
+          : depth.values[row * depth.cols + col]
+        const idx = (y * w + x) * 4
+        if (d < DEPTH_CLASSES[0].min) {
+          img.data[idx + 3] = 0
+          continue
+        }
+        const c =
+          d < 0.08 ? DEPTH_CLASSES[0] : d < 0.18 ? DEPTH_CLASSES[1] : d < 0.35 ? DEPTH_CLASSES[2] : DEPTH_CLASSES[3]
+        img.data[idx] = c.rgb[0]
+        img.data[idx + 1] = c.rgb[1]
+        img.data[idx + 2] = c.rgb[2]
+        img.data[idx + 3] = c.rgb[3]
       }
-      const c =
-        d < 0.08 ? DEPTH_CLASSES[0] : d < 0.18 ? DEPTH_CLASSES[1] : d < 0.35 ? DEPTH_CLASSES[2] : DEPTH_CLASSES[3]
-      img.data[idx] = c.rgb[0]
-      img.data[idx + 1] = c.rgb[1]
-      img.data[idx + 2] = c.rgb[2]
-      img.data[idx + 3] = c.rgb[3]
     }
+    if (y1 < h) await yieldToUi()
   }
   ctx.putImageData(img, 0, 0)
   return canvas.toDataURL('image/png')
@@ -173,22 +264,29 @@ const RISK_RGB: [number, number, number, number][] = [
   [159, 27, 45, 195],
 ]
 
-export function createRiskDataUrl(risk: Uint8Array, cols: number, rows: number): string {
-  const scale = 4
+export async function createRiskDataUrl(
+  risk: Uint8Array,
+  cols: number,
+  rows: number,
+  scale = 4,
+): Promise<string> {
   const { canvas, ctx, w, h } = makeCanvas(cols, rows, scale)
   const img = ctx.createImageData(w, h)
-  for (let y = 0; y < h; y++) {
-    const row = Math.min(rows - 1, Math.floor((y / h) * rows))
-    for (let x = 0; x < w; x++) {
-      const col = Math.min(cols - 1, Math.floor((x / w) * cols))
-      const level = risk[row * cols + col]
-      const c = RISK_RGB[level]
-      const idx = (y * w + x) * 4
-      img.data[idx] = c[0]
-      img.data[idx + 1] = c[1]
-      img.data[idx + 2] = c[2]
-      img.data[idx + 3] = c[3]
+  for (const [y0, y1] of bands(h, 6)) {
+    for (let y = y0; y < y1; y++) {
+      const row = Math.min(rows - 1, Math.floor((y / h) * rows))
+      for (let x = 0; x < w; x++) {
+        const col = Math.min(cols - 1, Math.floor((x / w) * cols))
+        const level = risk[row * cols + col]
+        const c = RISK_RGB[level]
+        const idx = (y * w + x) * 4
+        img.data[idx] = c[0]
+        img.data[idx + 1] = c[1]
+        img.data[idx + 2] = c[2]
+        img.data[idx + 3] = c[3]
+      }
     }
+    if (y1 < h) await yieldToUi()
   }
   ctx.putImageData(img, 0, 0)
   return canvas.toDataURL('image/png')
@@ -196,50 +294,53 @@ export function createRiskDataUrl(risk: Uint8Array, cols: number, rows: number):
 
 export type DiffMode = 'depth' | 'risk'
 
-export function createDiffDataUrl(
+export async function createDiffDataUrl(
   current: ModelResult,
   baseline: ModelResult,
   mode: DiffMode,
-): string {
+  scale = 4,
+): Promise<string> {
   const grid = current.depth
-  const scale = 4
   const { canvas, ctx, w, h } = makeCanvas(grid.cols, grid.rows, scale)
   const img = ctx.createImageData(w, h)
-  for (let y = 0; y < h; y++) {
-    const row = Math.min(grid.rows - 1, Math.floor((y / h) * grid.rows))
-    for (let x = 0; x < w; x++) {
-      const col = Math.min(grid.cols - 1, Math.floor((x / w) * grid.cols))
-      const i = row * grid.cols + col
-      const idx = (y * w + x) * 4
-      if (mode === 'depth') {
-        const delta = grid.values[i] - baseline.depth.values[i]
-        if (delta > 0.01) {
-          img.data[idx] = 190
-          img.data[idx + 1] = 52
-          img.data[idx + 2] = 40
-          img.data[idx + 3] = Math.min(215, 60 + Math.round(delta * 420))
-        } else if (delta < -0.01) {
-          img.data[idx] = 32
-          img.data[idx + 1] = 108
-          img.data[idx + 2] = 146
-          img.data[idx + 3] = Math.min(215, 60 + Math.round(-delta * 420))
-        }
-      } else {
-        const delta = current.risk[i] - baseline.risk[i]
-        if (delta >= 1) {
-          const strong = delta >= 2
-          img.data[idx] = strong ? 150 : 223
-          img.data[idx + 1] = strong ? 18 : 90
-          img.data[idx + 2] = strong ? 42 : 57
-          img.data[idx + 3] = strong ? 205 : 170
-        } else if (delta <= -1) {
-          img.data[idx] = 24
-          img.data[idx + 1] = 132
-          img.data[idx + 2] = 124
-          img.data[idx + 3] = 160
+  for (const [y0, y1] of bands(h, 6)) {
+    for (let y = y0; y < y1; y++) {
+      const row = Math.min(grid.rows - 1, Math.floor((y / h) * grid.rows))
+      for (let x = 0; x < w; x++) {
+        const col = Math.min(grid.cols - 1, Math.floor((x / w) * grid.cols))
+        const i = row * grid.cols + col
+        const idx = (y * w + x) * 4
+        if (mode === 'depth') {
+          const delta = grid.values[i] - baseline.depth.values[i]
+          if (delta > 0.01) {
+            img.data[idx] = 190
+            img.data[idx + 1] = 52
+            img.data[idx + 2] = 40
+            img.data[idx + 3] = Math.min(215, 60 + Math.round(delta * 420))
+          } else if (delta < -0.01) {
+            img.data[idx] = 32
+            img.data[idx + 1] = 108
+            img.data[idx + 2] = 146
+            img.data[idx + 3] = Math.min(215, 60 + Math.round(-delta * 420))
+          }
+        } else {
+          const delta = current.risk[i] - baseline.risk[i]
+          if (delta >= 1) {
+            const strong = delta >= 2
+            img.data[idx] = strong ? 150 : 223
+            img.data[idx + 1] = strong ? 18 : 90
+            img.data[idx + 2] = strong ? 42 : 57
+            img.data[idx + 3] = strong ? 205 : 170
+          } else if (delta <= -1) {
+            img.data[idx] = 24
+            img.data[idx + 1] = 132
+            img.data[idx + 2] = 124
+            img.data[idx + 3] = 160
+          }
         }
       }
     }
+    if (y1 < h) await yieldToUi()
   }
   ctx.putImageData(img, 0, 0)
   return canvas.toDataURL('image/png')

@@ -26,14 +26,17 @@ import {
   createRainDataUrl,
   createRiskDataUrl,
   createTerrainDataUrl,
+  rasterLevelFor,
 } from '../gis/rasters'
 import {
   buildingStyle,
+  BUILDING_COLORS,
   districtStyle,
   focusStyle,
   lowlandStyle,
   measureLineStyle,
   measurePolygonStyle,
+  parkStyle,
   queryPolygonStyle,
   roadStyle,
   selectionStyle,
@@ -67,8 +70,8 @@ export interface MapViewProps {
   onViewChange: (v: { zoom: number; scaleText: string }) => void
 }
 
-const FIT_PADDING: [number, number, number, number] = [80, 390, 74, 300]
-const VECTOR_IDS = ['districts', 'lowland', 'water', 'roads', 'buildings']
+const FIT_PADDING: [number, number, number, number] = [12, 12, 12, 12]
+const VECTOR_IDS = ['districts', 'parks', 'lowland', 'water', 'roads', 'buildings']
 
 function featureSubtitle(props: Record<string, unknown>): string {
   const kind = String(props.kind ?? '')
@@ -78,6 +81,7 @@ function featureSubtitle(props: Record<string, unknown>): string {
   if (kind === 'canal') return `排水渠 · ${props.capacityM3s} m³/s`
   if (kind === 'pump') return `泵站 · ${props.capacityM3s} m³/s`
   if (kind === 'lowland') return `低洼区 · ${props.district}`
+  if (kind === 'park') return `${props.parkType} · ${props.district}`
   if (kind === 'district') return '行政分区'
   return ''
 }
@@ -97,6 +101,8 @@ export default function MapView(props: MapViewProps) {
   const tooltipRef = useRef<HTMLDivElement>(null)
   const tipTitleRef = useRef<HTMLSpanElement>(null)
   const tipSubRef = useRef<HTMLSpanElement>(null)
+  const b3dRef = useRef<HTMLCanvasElement>(null)
+  const flowRef = useRef<HTMLCanvasElement>(null)
   const mapRef = useRef<Map | null>(null)
   const layersRef = useRef<Record<string, BaseLayer>>({})
   const mapExtentRef = useRef<Extent | null>(null)
@@ -104,6 +110,7 @@ export default function MapView(props: MapViewProps) {
   propsRef.current = props
 
   const [measure, setMeasure] = useState<string | null>(null)
+  const [rasterLevel, setRasterLevel] = useState(() => rasterLevelFor(13.6))
 
   const setImageSource = (id: string, url: string, interpolate: boolean) => {
     const layer = layersRef.current[id]
@@ -117,6 +124,24 @@ export default function MapView(props: MapViewProps) {
         interpolate,
       }),
     )
+  }
+
+  // 按「源数据对象 + 级别」缓存已生成的栅格，避免来回缩放时重复计算
+  const rasterCacheRef = useRef(
+    new globalThis.Map<string, { src: object; url: string }>(),
+  )
+  const getRaster = (key: string, src: object) => {
+    const hit = rasterCacheRef.current.get(key)
+    return hit && hit.src === src ? hit.url : null
+  }
+  const putRaster = (key: string, src: object, url: string) => {
+    const cache = rasterCacheRef.current
+    cache.set(key, { src, url })
+    while (cache.size > 12) {
+      const oldest = cache.keys().next().value
+      if (oldest === undefined) break
+      cache.delete(oldest)
+    }
   }
 
   const clearMeasure = () => {
@@ -164,6 +189,12 @@ export default function MapView(props: MapViewProps) {
       style: districtStyle,
       zIndex: 30,
       properties: { layerId: 'districts' },
+    })
+    const parksLayer = new VectorLayer({
+      source: sourceOf(city.parks),
+      style: parkStyle,
+      zIndex: 35,
+      properties: { layerId: 'parks' },
     })
     const lowlandLayer = new VectorLayer({
       source: sourceOf(city.lowlands),
@@ -223,6 +254,7 @@ export default function MapView(props: MapViewProps) {
       risk: riskLayer,
       diff: diffLayer,
       districts: districtsLayer,
+      parks: parksLayer,
       lowland: lowlandLayer,
       water: waterLayer,
       buildings: buildingsLayer,
@@ -242,6 +274,7 @@ export default function MapView(props: MapViewProps) {
         riskLayer,
         diffLayer,
         districtsLayer,
+        parksLayer,
         lowlandLayer,
         waterLayer,
         buildingsLayer,
@@ -258,9 +291,8 @@ export default function MapView(props: MapViewProps) {
     map.addControl(
       new ScaleLine({
         units: 'metric',
-        bar: true,
-        steps: 4,
-        minWidth: 96,
+        bar: false,
+        minWidth: 90,
         className: 'gis-scale',
       }),
     )
@@ -281,6 +313,14 @@ export default function MapView(props: MapViewProps) {
     }
     updateViewState()
     map.on('moveend', updateViewState)
+
+    // 放大时切换到更高级别的栅格重采样
+    const syncRasterLevel = () => {
+      const next = rasterLevelFor(map.getView().getZoom() ?? 0)
+      setRasterLevel((prev) => (prev.key === next.key ? prev : next))
+    }
+    map.on('moveend', syncRasterLevel)
+    syncRasterLevel()
 
     let lastCursor = 0
     map.on('pointermove', (evt) => {
@@ -425,28 +465,431 @@ export default function MapView(props: MapViewProps) {
 
     return () => {
       resizeObserver.disconnect()
+      map.un('moveend', updateViewState)
+      map.un('moveend', syncRasterLevel)
       map.setTarget(undefined)
       mapRef.current = null
       layersRef.current = {}
     }
   }, [])
 
-  /* ---------------- 栅格数据源 ---------------- */
+  /* ---------------- 三维建筑体块（细节层次 + 平滑渐入） ---------------- */
+  useEffect(() => {
+    const map = mapRef.current
+    const canvas = b3dRef.current
+    if (!map || !canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // k > 0 向白色提亮，k < 0 向黑色压暗，用于浅色电子地图的体块明暗分层
+    const shift = (hex: string, k: number) => {
+      const v = hex.replace('#', '')
+      const full = v.length === 3 ? v.split('').map((c) => c + c).join('') : v
+      const n = parseInt(full, 16)
+      const mix = (c: number) =>
+        Math.round(k >= 0 ? c + (255 - c) * k : c * (1 + k))
+      return `rgb(${mix((n >> 16) & 255)}, ${mix((n >> 8) & 255)}, ${mix(n & 255)})`
+    }
+
+    const render = () => {
+      const size = map.getSize()
+      if (!size) return
+      const [w, h] = size
+      const dpr = window.devicePixelRatio || 1
+      const cw = Math.round(w * dpr)
+      const ch = Math.round(h * dpr)
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw
+        canvas.height = ch
+        canvas.style.width = `${w}px`
+        canvas.style.height = `${h}px`
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+
+      const layer = layersRef.current.buildings as
+        | VectorLayer<VectorSource>
+        | undefined
+      if (!layer || !layer.getVisible()) return
+
+      const view = map.getView()
+      const zoom = view.getZoom() ?? 0
+      const res = view.getResolution() ?? 1
+      // 分级渲染：小比例尺直接使用矢量层的平面基底，避免逐栋投影；
+      // 15.9 → 16.6 渐入三维体块，兼顾观感与移动端帧率
+      const t = Math.min(1, Math.max(0, (zoom - 15.9) / 0.7))
+      if (t <= 0) return
+
+      interface Block {
+        pts: number[][]
+        color: string
+        floors: number
+        heightM: number
+        name: string
+        type: string
+        depth: number
+      }
+      const blocks: Block[] = []
+      for (const feature of layer.getSource()?.getFeatures() ?? []) {
+        const geom = feature.getGeometry()
+        if (!(geom instanceof Polygon)) continue
+        // 先用外包框中心做屏幕裁剪，避免对全量建筑逐一投影
+        const ex = geom.getExtent()
+        const center = map.getPixelFromCoordinate([
+          (ex[0] + ex[2]) / 2,
+          (ex[1] + ex[3]) / 2,
+        ])
+        if (!center) continue
+        if (center[0] < -140 || center[0] > w + 140 || center[1] < -140 || center[1] > h + 220) continue
+        const ring = geom.getCoordinates()[0]
+        const pts: number[][] = []
+        let minX = Infinity
+        let maxX = -Infinity
+        let minY = Infinity
+        let maxY = -Infinity
+        for (const coord of ring) {
+          const px = map.getPixelFromCoordinate(coord)
+          if (!px) continue
+          pts.push(px)
+          if (px[0] < minX) minX = px[0]
+          if (px[0] > maxX) maxX = px[0]
+          if (px[1] < minY) minY = px[1]
+          if (px[1] > maxY) maxY = px[1]
+        }
+        if (pts.length < 3) continue
+        if (maxX < -80 || minX > w + 80 || maxY < -80 || maxY > h + 160) continue
+        // 屏幕上过小的建筑不再绘制体块，远距离时可省去大量路径运算
+        if ((maxX - minX) * (maxY - minY) < 26) continue
+        const type = String(feature.get('buildingType') ?? '住宅')
+        blocks.push({
+          pts,
+          color: BUILDING_COLORS[type] ?? '#d9dbd4',
+          floors: Number(feature.get('floors') ?? 0),
+          heightM: Number(feature.get('heightM') ?? 12),
+          name: String(feature.get('name') ?? ''),
+          type,
+          depth: maxY,
+        })
+      }
+
+      // 先绘制远景，再绘制近景，保证体块遮挡关系稳定
+      blocks.sort((a, b) => a.depth - b.depth)
+      ctx.globalAlpha = t * layer.getOpacity()
+      ctx.lineJoin = 'round'
+      // 建筑细节分级：16.6 起绘制屋面内轮廓，17 起叠加楼层线
+      const detailLevel = zoom >= 17 ? 2 : zoom >= 16.6 ? 1 : 0
+
+      for (const b of blocks) {
+        const heightPx = Math.min(90, b.heightM / res)
+        const dx = heightPx * 0.46
+        const dy = -heightPx * 0.58
+        const n = b.pts.length
+        // 渐入阶段（t < 0.5）只画平面基底，体块成形后再叠加投影与立面
+        const solid = t >= 0.5
+
+        // 地面投影：向受光方向偏移的柔和阴影，模拟电子地图的立体感
+        if (solid) {
+          ctx.beginPath()
+          b.pts.forEach((p, i) => {
+            const x = p[0] + dx * 0.5
+            const y = p[1] + dy * 0.5
+            if (i) ctx.lineTo(x, y)
+            else ctx.moveTo(x, y)
+          })
+          ctx.closePath()
+          ctx.fillStyle = 'rgba(96, 110, 118, 0.13)'
+          ctx.fill()
+        }
+
+        // 地面基底
+        ctx.beginPath()
+        b.pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])))
+        ctx.closePath()
+        ctx.fillStyle = shift(b.color, -0.08)
+        ctx.fill()
+
+        // 立面：受光面更浅、背光面略深，保持浅灰层次
+        if (solid) {
+          for (let i = 0; i < n; i += 1) {
+            const p1 = b.pts[i]
+            const p2 = b.pts[(i + 1) % n]
+            const nx = p2[1] - p1[1]
+            const ny = -(p2[0] - p1[0])
+            const facing = (nx * dx + ny * dy) / (Math.hypot(nx, ny) || 1)
+            ctx.beginPath()
+            ctx.moveTo(p1[0], p1[1])
+            ctx.lineTo(p2[0], p2[1])
+            ctx.lineTo(p2[0] + dx, p2[1] + dy)
+            ctx.lineTo(p1[0] + dx, p1[1] + dy)
+            ctx.closePath()
+            ctx.fillStyle = shift(b.color, facing >= 0 ? 0.12 : -0.06)
+            ctx.fill()
+          }
+        }
+
+        // 屋顶：接近白色，仅在边缘保留淡描边
+        ctx.beginPath()
+        b.pts.forEach((p, i) => {
+          const x = p[0] + dx
+          const y = p[1] + dy
+          if (i) ctx.lineTo(x, y)
+          else ctx.moveTo(x, y)
+        })
+        ctx.closePath()
+        ctx.fillStyle = shift(b.color, 0.62)
+        ctx.fill()
+        ctx.globalAlpha = t * layer.getOpacity() * 0.5
+        ctx.strokeStyle = 'rgba(126, 130, 122, 0.6)'
+        ctx.lineWidth = 0.8
+        ctx.stroke()
+
+        if (detailLevel > 0) {
+          let cx = 0
+          let cy = 0
+          for (const p of b.pts) {
+            cx += p[0]
+            cy += p[1]
+          }
+          cx = cx / n + dx
+          cy = cy / n + dy
+          // 屋面内轮廓，近似女儿墙与屋面分层
+          ctx.beginPath()
+          b.pts.forEach((p, i) => {
+            const x = cx + (p[0] + dx - cx) * 0.72
+            const y = cy + (p[1] + dy - cy) * 0.72
+            if (i) ctx.lineTo(x, y)
+            else ctx.moveTo(x, y)
+          })
+          ctx.closePath()
+          ctx.globalAlpha = t * layer.getOpacity() * 0.6
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+          ctx.lineWidth = 0.7
+          ctx.stroke()
+        }
+
+        if (detailLevel >= 2 && b.floors >= 2) {
+          // 楼层线：把基底轮廓按高度比例逐层抬升
+          const steps = Math.min(10, b.floors - 1)
+          ctx.globalAlpha = t * layer.getOpacity() * 0.32
+          ctx.strokeStyle = 'rgba(133, 136, 128, 0.85)'
+          ctx.lineWidth = 0.6
+          for (let k = 1; k <= steps; k += 1) {
+            const f = k / (steps + 1)
+            ctx.beginPath()
+            b.pts.forEach((p, i) => {
+              const x = p[0] + dx * f
+              const y = p[1] + dy * f
+              if (i) ctx.lineTo(x, y)
+              else ctx.moveTo(x, y)
+            })
+            ctx.closePath()
+            ctx.stroke()
+          }
+        }
+        ctx.globalAlpha = t * layer.getOpacity()
+      }
+
+      // 语义标注：高层级要素在放大后显示名称
+      if (zoom >= 16) {
+        const labels = blocks
+          .filter((b) => zoom >= 17.2 || b.type !== '住宅')
+          .slice(-24)
+        ctx.globalAlpha = Math.min(1, t * layer.getOpacity())
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.font = '500 9.5px "Noto Sans SC", "PingFang SC", system-ui, sans-serif'
+        for (const b of labels) {
+          const heightPx = Math.min(90, b.heightM / res)
+          const dx = heightPx * 0.46
+          const dy = -heightPx * 0.58
+          let cx = 0
+          let cy = 0
+          for (const p of b.pts) {
+            cx += p[0]
+            cy += p[1]
+          }
+          cx = cx / b.pts.length + dx
+          cy = cy / b.pts.length + dy - 6
+          const text = b.type === '住宅' ? `${b.type} · ${b.floors}F` : b.name
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)'
+          ctx.lineWidth = 3
+          ctx.strokeText(text, cx, cy)
+          ctx.fillStyle = '#454c50'
+          ctx.fillText(text, cx, cy)
+        }
+      }
+      ctx.globalAlpha = 1
+    }
+
+    map.on('postrender', render)
+    render()
+    return () => {
+      map.un('postrender', render)
+    }
+  }, [])
+
+  /* ---------------- 河道水流动画（放大后显现，独立画布轻量绘制） ---------------- */
+  useEffect(() => {
+    const map = mapRef.current
+    const canvas = flowRef.current
+    if (!map || !canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // 河道与排水渠中心线，统一转换到地图投影后缓存
+    const lines = props.city.hydro.features.map((f) => ({
+      kind: String(f.properties.kind ?? ''),
+      pts: (f.geometry.coordinates as number[][]).map((c) => fromLonLat(c)),
+    }))
+
+    let raf = 0
+    let last = 0
+
+    const render = (now: number) => {
+      raf = requestAnimationFrame(render)
+      if (now - last < 33) return
+      last = now
+
+      const size = map.getSize()
+      if (!size) return
+      const [w, h] = size
+      const dpr = window.devicePixelRatio || 1
+      const cw = Math.round(w * dpr)
+      const ch = Math.round(h * dpr)
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw
+        canvas.height = ch
+        canvas.style.width = `${w}px`
+        canvas.style.height = `${h}px`
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+
+      const waterLayer = layersRef.current.water
+      if (!waterLayer || !waterLayer.getVisible() || !waterLayer.getOpacity()) return
+
+      const zoom = map.getView().getZoom() ?? 0
+      const fade = Math.min(1, Math.max(0, (zoom - 15.1) / 0.9))
+      if (fade <= 0.02) return
+
+      const offset = (now * 0.05) % 40
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+
+      // 主河道：宽水面上的两股白色水流，模拟顺流而下的水纹
+      for (const line of lines) {
+        const px: number[][] = []
+        for (const c of line.pts) {
+          const p = map.getPixelFromCoordinate(c)
+          if (p) px.push(p)
+        }
+        if (px.length < 2) continue
+        const isRiver = line.kind === 'river'
+        const width = isRiver ? 2.6 : 1.3
+        const alpha = fade * waterLayer.getOpacity()
+
+        ctx.beginPath()
+        px.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])))
+        ctx.setLineDash(isRiver ? [16, 26] : [9, 20])
+        ctx.lineDashOffset = -offset
+        ctx.lineWidth = width
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(0.62 * alpha).toFixed(3)})`
+        ctx.stroke()
+
+        ctx.beginPath()
+        px.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])))
+        ctx.setLineDash(isRiver ? [7, 33] : [5, 26])
+        ctx.lineDashOffset = -offset * 1.55 - 12
+        ctx.lineWidth = width * 0.55
+        ctx.strokeStyle = `rgba(255, 255, 255, ${(0.3 * alpha).toFixed(3)})`
+        ctx.stroke()
+      }
+      ctx.setLineDash([])
+    }
+
+    raf = requestAnimationFrame(render)
+    return () => {
+      cancelAnimationFrame(raf)
+      ctx.setLineDash([])
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+    }
+  }, [props.city])
+
+  /* ---------------- 栅格数据源（多级重采样 · 分帧生成 · 按级别缓存） ---------------- */
   useEffect(() => {
     if (!mapRef.current) return
-    setImageSource('terrain', createTerrainDataUrl(props.city.terrain), true)
-  }, [props.city])
+    const cacheKey = `terrain|${rasterLevel.key}`
+    const cached = getRaster(cacheKey, props.city.terrain)
+    if (cached) {
+      setImageSource('terrain', cached, true)
+      return
+    }
+    let cancelled = false
+    void createTerrainDataUrl(
+      props.city.terrain,
+      rasterLevel.terrainScale,
+      rasterLevel.bicubic,
+    ).then((url) => {
+      if (cancelled) return
+      putRaster(cacheKey, props.city.terrain, url)
+      setImageSource('terrain', url, true)
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.city, rasterLevel])
 
   useEffect(() => {
     if (!mapRef.current) return
-    setImageSource('rainfall', createRainDataUrl(props.model.rain), true)
-    setImageSource('depth', createDepthDataUrl(props.model.depth), false)
-    setImageSource(
-      'risk',
-      createRiskDataUrl(props.model.risk, props.model.depth.cols, props.model.depth.rows),
-      false,
-    )
-  }, [props.model])
+    let cancelled = false
+    const level = rasterLevel
+    const rainKey = `rainfall|${level.key}`
+    const depthKey = `depth|${level.key}`
+    const riskKey = `risk|${level.key}`
+
+    void (async () => {
+      const rainCached = getRaster(rainKey, props.model)
+      const rainUrl =
+        rainCached ?? (await createRainDataUrl(props.model.rain, level.scale))
+      if (cancelled) return
+      if (!rainCached) putRaster(rainKey, props.model, rainUrl)
+      setImageSource('rainfall', rainUrl, true)
+
+      const depthCached = getRaster(depthKey, props.model)
+      const depthUrl =
+        depthCached ??
+        (await createDepthDataUrl(props.model.depth, level.scale, level.smoothDepth))
+      if (cancelled) return
+      if (!depthCached) putRaster(depthKey, props.model, depthUrl)
+      setImageSource('depth', depthUrl, false)
+
+      const riskCached = getRaster(riskKey, props.model)
+      const riskUrl =
+        riskCached ??
+        (await createRiskDataUrl(
+          props.model.risk,
+          props.model.depth.cols,
+          props.model.depth.rows,
+          level.scale,
+        ))
+      if (cancelled) return
+      if (!riskCached) putRaster(riskKey, props.model, riskUrl)
+      setImageSource('risk', riskUrl, false)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.model, rasterLevel])
+
+  // 基准情景变化时失效差异图层缓存
+  useEffect(() => {
+    for (const key of [...rasterCacheRef.current.keys()]) {
+      if (key.startsWith('diff|')) rasterCacheRef.current.delete(key)
+    }
+  }, [props.baselineModel])
 
   /* ---------------- 图层显隐与透明度 ---------------- */
   useEffect(() => {
@@ -467,13 +910,27 @@ export default function MapView(props: MapViewProps) {
       layer.setVisible(false)
       return
     }
-    setImageSource(
-      'diff',
-      createDiffDataUrl(props.model, baseline, props.diffMode),
-      false,
+    const cacheKey = `diff|${rasterLevel.key}|${props.diffMode}`
+    const cached = getRaster(cacheKey, props.model)
+    if (cached) {
+      setImageSource('diff', cached, false)
+      layer.setVisible(true)
+      return
+    }
+    let cancelled = false
+    void createDiffDataUrl(props.model, baseline, props.diffMode, rasterLevel.scale).then(
+      (url) => {
+        if (cancelled) return
+        putRaster(cacheKey, props.model, url)
+        setImageSource('diff', url, false)
+        layer.setVisible(true)
+      },
     )
-    layer.setVisible(true)
-  }, [props.diffVisible, props.diffMode, props.baselineModel, props.model])
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.diffVisible, props.diffMode, props.baselineModel, props.model, rasterLevel])
 
   /* ---------------- 选中要素 / 查询区域 / 定位 ---------------- */
   useEffect(() => {
@@ -579,6 +1036,8 @@ export default function MapView(props: MapViewProps) {
   return (
     <div className="map-host">
       <div className="map-canvas" ref={containerRef} />
+      <canvas className="river-flow-canvas" ref={flowRef} aria-hidden="true" />
+      <canvas className="building-3d-canvas" ref={b3dRef} aria-hidden="true" />
       <div className="map-tooltip" ref={tooltipRef}>
         <span className="map-tooltip-title" ref={tipTitleRef} />
         <span className="map-tooltip-sub" ref={tipSubRef} />
@@ -591,9 +1050,6 @@ export default function MapView(props: MapViewProps) {
           </button>
         </div>
       )}
-      <div className="map-corner-note">
-        青澜市 · 虚拟城市边界 · WGS84 / Web Mercator
-      </div>
     </div>
   )
 }

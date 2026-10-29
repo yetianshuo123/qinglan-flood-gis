@@ -1,7 +1,11 @@
-# 青澜市城市内涝 GIS 侦测工作台
+# 澜汀市城市内涝防治地理信息系统
 
 基于 React + TypeScript + Vite + OpenLayers + Turf.js 的交互式城市内涝 GIS 系统。
 所有空间数据（地形、降雨、水系、道路、建筑、低洼区、积水深度、内涝风险）均为**程序化生成的虚拟城市数据**，内涝模型为简化水文模型，非水动力模型，不可用于真实灾害预测。
+
+## 可视化表达
+
+系统在较小比例尺下以二维专题示意图呈现城市内涝空间格局；随着地图比例尺放大，场景过渡为可交互的三维虚拟城市场景。三维表达综合采用细节层次（LOD）、多级重采样重建、语义标注与多尺度渲染等技术，按缩放级别逐级调度建筑体块、楼层与屋面细节、地形晕渲精度与注记信息，实现场景的平滑缩放与局部精细放大，从而提升空间表达的几何保真度、视觉清晰度与信息可读性。
 
 ## 在线访问
 
@@ -38,7 +42,7 @@ git subtree push --prefix dist origin gh-pages
 仓库发布 Release 后，在 <https://zenodo.org> 用 GitHub 登录并开启该仓库归档，Zenodo 会为每个 Release 生成 DOI：
 
 ```text
-作者. (2026). 青澜市城市内涝 GIS 侦测工作台 (Version 1.0.0) [Computer software].
+作者. (2026). 澜汀市城市内涝防治地理信息系统 (Version 1.0.0) [Computer software].
 Zenodo. https://doi.org/10.5281/zenodo.XXXXXXX
 ```
 

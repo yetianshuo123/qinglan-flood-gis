@@ -25,3 +25,7 @@ dist-ssr
 
 # 本地打包产物
 qinglan-gis-web.zip
+lanting-gis.html
+.screenshots/
+.trae-html-share-packages/
+/tmp/

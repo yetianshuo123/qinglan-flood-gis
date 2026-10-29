@@ -22,12 +22,14 @@ export const BUILDING_COLORS: Record<string, string> = {
 export const BUILDING_TYPES = ['住宅', '商业', '公共', '学校', '医院', '工业']
 
 export const ROAD_CLASS_STYLE = {
-  主干道: { color: '#f1e7d3', width: 3.6 },
-  次干道: { color: '#c4d1d8', width: 2.5 },
-  支路: { color: '#96a7b4', width: 1.6 },
+  主干道: { color: '#f1e7d3', casing: 'rgba(6, 11, 16, 0.8)', width: 3.6 },
+  次干道: { color: '#c4d1d8', casing: 'rgba(6, 11, 16, 0.7)', width: 2.5 },
+  支路: { color: '#96a7b4', casing: 'rgba(6, 11, 16, 0.58)', width: 1.6 },
 } as const
 
 export type RoadClassKey = keyof typeof ROAD_CLASS_STYLE
+
+const LABEL_HALO = 'rgba(5, 10, 14, 0.92)'
 
 const LOWLAND_FILL = new Fill({ color: 'rgba(224, 155, 70, 0.14)' })
 const LOWLAND_STROKE = new Stroke({
@@ -47,8 +49,55 @@ export function lowlandStyle(feature: FeatureLike, resolution: number): Style[] 
           text: String(feature.get('name') ?? ''),
           font: `600 11px ${FONT}`,
           fill: new Fill({ color: '#f6c98a' }),
-          stroke: new Stroke({ color: 'rgba(12, 18, 24, 0.9)', width: 3 }),
+          stroke: new Stroke({ color: LABEL_HALO, width: 3 }),
           offsetY: -2,
+        }),
+      }),
+    )
+  }
+  return styles
+}
+
+export const PARK_COLORS: Record<string, { fill: string; stroke: string; label: string }> = {
+  森林公园: {
+    fill: 'rgba(84, 118, 76, 0.34)',
+    stroke: 'rgba(126, 168, 116, 0.55)',
+    label: '#d3e8c6',
+  },
+  湿地公园: {
+    fill: 'rgba(52, 126, 160, 0.26)',
+    stroke: 'rgba(96, 172, 210, 0.5)',
+    label: '#bfe6f2',
+  },
+  滨江生态缓冲带: {
+    fill: 'rgba(96, 138, 100, 0.22)',
+    stroke: 'rgba(132, 174, 120, 0.45)',
+    label: '#cfe6c2',
+  },
+  城市公园: {
+    fill: 'rgba(92, 132, 84, 0.28)',
+    stroke: 'rgba(128, 170, 112, 0.5)',
+    label: '#d5e9c8',
+  },
+}
+
+export function parkStyle(feature: FeatureLike, resolution: number): Style[] {
+  const parkType = String(feature.get('parkType') ?? '城市公园')
+  const cfg = PARK_COLORS[parkType] ?? PARK_COLORS['城市公园']
+  const styles: Style[] = [
+    new Style({
+      fill: new Fill({ color: cfg.fill }),
+      stroke: new Stroke({ color: cfg.stroke, width: 1, lineDash: [7, 5] }),
+    }),
+  ]
+  if (resolution < 18) {
+    styles.push(
+      new Style({
+        text: new Text({
+          text: String(feature.get('name') ?? ''),
+          font: `600 10.5px ${FONT}`,
+          fill: new Fill({ color: cfg.label }),
+          stroke: new Stroke({ color: LABEL_HALO, width: 3 }),
         }),
       }),
     )
@@ -71,7 +120,7 @@ export function districtStyle(feature: FeatureLike, resolution: number): Style {
         text: String(feature.get('name') ?? ''),
         font: `600 13px ${FONT}`,
         fill: new Fill({ color: 'rgba(219, 232, 240, 0.88)' }),
-        stroke: new Stroke({ color: 'rgba(8, 14, 20, 0.92)', width: 3.5 }),
+        stroke: new Stroke({ color: LABEL_HALO, width: 3.5 }),
         textAlign: 'center',
         padding: [2, 4, 2, 4],
       }),
@@ -80,13 +129,19 @@ export function districtStyle(feature: FeatureLike, resolution: number): Style {
   return style
 }
 
+const buildingStyleCache = new globalThis.Map<string, Style>()
+
 export function buildingStyle(feature: FeatureLike): Style {
   const type = String(feature.get('buildingType') ?? '住宅')
-  const color = BUILDING_COLORS[type] ?? BUILDING_COLORS['住宅']
-  return new Style({
-    fill: new Fill({ color }),
+  const key = BUILDING_COLORS[type] ? type : '住宅'
+  const cached = buildingStyleCache.get(key)
+  if (cached) return cached
+  const style = new Style({
+    fill: new Fill({ color: BUILDING_COLORS[key] }),
     stroke: new Stroke({ color: 'rgba(8, 14, 20, 0.75)', width: 0.7 }),
   })
+  buildingStyleCache.set(key, style)
+  return style
 }
 
 export function roadStyle(feature: FeatureLike, resolution: number): Style[] {
@@ -95,8 +150,8 @@ export function roadStyle(feature: FeatureLike, resolution: number): Style[] {
   const styles: Style[] = [
     new Style({
       stroke: new Stroke({
-        color: 'rgba(6, 11, 16, 0.8)',
-        width: cfg.width + 1.7,
+        color: cfg.casing,
+        width: cfg.width + 1.9,
         lineCap: 'round',
         lineJoin: 'round',
       }),
@@ -118,7 +173,7 @@ export function roadStyle(feature: FeatureLike, resolution: number): Style[] {
           font: `500 10.5px ${FONT}`,
           placement: 'line',
           fill: new Fill({ color: '#eef4f8' }),
-          stroke: new Stroke({ color: 'rgba(5, 10, 14, 0.92)', width: 3 }),
+          stroke: new Stroke({ color: LABEL_HALO, width: 3 }),
           overflow: true,
           maxAngle: 0.55,
         }),
@@ -152,7 +207,7 @@ export function waterStyle(feature: FeatureLike, resolution: number): Style | St
             font: `500 10px ${FONT}`,
             offsetY: -14,
             fill: new Fill({ color: '#bdeaf2' }),
-            stroke: new Stroke({ color: 'rgba(5, 11, 15, 0.9)', width: 3 }),
+            stroke: new Stroke({ color: LABEL_HALO, width: 3 }),
           }),
         }),
       )
@@ -171,7 +226,7 @@ export function waterStyle(feature: FeatureLike, resolution: number): Style | St
     return new Style({
       stroke: new Stroke({
         color: 'rgba(74, 160, 201, 0.95)',
-        width: 4.6,
+        width: 5.2,
         lineCap: 'round',
       }),
     })

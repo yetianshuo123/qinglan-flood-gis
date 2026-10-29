@@ -20,7 +20,7 @@ import {
 } from './gis/analysis'
 import type { DiffMode } from './gis/rasters'
 import type { LonLat, ModelResult, Scenario } from './gis/types'
-import type { CursorInfo, LayerId, LayerState, SelectionInfo, Tool } from './uiTypes'
+import type { CursorInfo, LayerId, LayerState, PanelMode, SelectionInfo, Tool } from './uiTypes'
 import { makeDefaultLayerStates } from './uiTypes'
 import './App.css'
 
@@ -50,6 +50,8 @@ export default function App() {
   const [focusPoint, setFocusPoint] = useState<{ point: LonLat; key: number } | null>(null)
   const [resetKey, setResetKey] = useState(0)
   const [clearKey, setClearKey] = useState(0)
+  const [leftMode, setLeftMode] = useState<PanelMode>('open')
+  const [rightMode, setRightMode] = useState<PanelMode>('open')
 
   const detail = useMemo(
     () =>
@@ -151,7 +153,9 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell panel-left-${leftMode} panel-right-${rightMode}`}
+    >
       <MapView
         city={CITY}
         model={model}
@@ -194,6 +198,8 @@ export default function App() {
         diffMode={diffMode}
         onDiffVisible={setDiffVisible}
         onDiffMode={setDiffMode}
+        mode={leftMode}
+        onMode={setLeftMode}
       />
 
       <InspectorPanel
@@ -229,6 +235,8 @@ export default function App() {
         onDiffVisible={setDiffVisible}
         diffMode={diffMode}
         onDiffMode={setDiffMode}
+        mode={rightMode}
+        onMode={setRightMode}
       />
 
       <StatusBar
