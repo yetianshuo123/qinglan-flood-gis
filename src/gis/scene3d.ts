@@ -50,6 +50,94 @@ function terrainColor(t: number, urban: number): [number, number, number] {
   return [r * (1 - u) + 0.55 * u, g * (1 - u) + 0.56 * u, bl * (1 - u) + 0.55 * u]
 }
 
+/**
+ * 程序化生成窗户贴图：单层墙体，含窗洞、窗框、窗棂与楼板线。
+ * 底色偏白，乘以建筑类型顶点色后呈现对应色相；窗洞为深色玻璃，少量亮灯。
+ * 纹理在 U/V 方向均 RepeatWrapping，可按建筑周长与楼层数缩放。
+ */
+function makeWindowTexture(): THREE.CanvasTexture {
+  const W = 128
+  const H = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')!
+
+  // 墙体底色
+  ctx.fillStyle = '#f1eee6'
+  ctx.fillRect(0, 0, W, H)
+
+  // 上下楼板线
+  ctx.fillStyle = '#d3cec2'
+  ctx.fillRect(0, 0, W, 3)
+  ctx.fillRect(0, H - 3, W, 3)
+
+  // 窗户：4 列
+  const cols = 4
+  const cw = W / cols
+  const winW = cw * 0.6
+  const winH = H * 0.55
+  const winX = cw * 0.2
+  const winY = H * 0.22
+  for (let c = 0; c < cols; c++) {
+    const x = c * cw + winX
+    const lit = Math.random() < 0.16
+    ctx.fillStyle = lit ? '#f7e7ad' : '#25303b'
+    ctx.fillRect(x, winY, winW, winH)
+    ctx.strokeStyle = '#8c867a'
+    ctx.lineWidth = 1
+    ctx.strokeRect(x + 0.5, winY + 0.5, winW - 1, winH - 1)
+    // 竖向窗棂
+    ctx.beginPath()
+    ctx.moveTo(x + winW / 2, winY)
+    ctx.lineTo(x + winW / 2, winY + winH)
+    ctx.stroke()
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.anisotropy = 8
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
+}
+
+/** 缩放 ExtrudeGeometry 侧面（materialIndex=0）的 UV，使窗户按周长与楼层数重复 */
+function scaleSideUVs(geo: THREE.BufferGeometry, uScale: number, vScale: number) {
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute | undefined
+  const idx = geo.getIndex()
+  if (!uv || !idx) return
+  for (const g of geo.groups) {
+    if (g.materialIndex !== 0) continue
+    for (let i = g.start; i < g.start + g.count; i++) {
+      const vi = idx.getX(i)
+      uv.setXY(vi, uv.getX(vi) * uScale, uv.getY(vi) * vScale)
+    }
+  }
+  uv.needsUpdate = true
+}
+
+/** 从带分组的几何体中抽取指定 materialIndex 的三角面为独立几何体 */
+function extractGroup(geo: THREE.BufferGeometry, materialIndex: number): THREE.BufferGeometry | null {
+  const group = geo.groups.find((g) => g.materialIndex === materialIndex)
+  if (!group) return null
+  const srcIdx = geo.getIndex()
+  if (!srcIdx) return null
+  const count = group.count
+  const idxArr = new Uint32Array(count)
+  for (let i = 0; i < count; i++) idxArr[i] = srcIdx.getX(group.start + i)
+  const out = new THREE.BufferGeometry()
+  out.setAttribute('position', geo.getAttribute('position'))
+  out.setAttribute('normal', geo.getAttribute('normal'))
+  if (materialIndex === 0 && geo.hasAttribute('uv')) {
+    // 侧面使用已缩放的 UV（克隆，避免与顶面共享引用）
+    out.setAttribute('uv', geo.getAttribute('uv').clone())
+  }
+  if (geo.hasAttribute('color')) out.setAttribute('color', geo.getAttribute('color'))
+  out.setIndex(new THREE.BufferAttribute(idxArr, 1))
+  return out
+}
+
 export interface Scene3DOptions {
   onReady?: () => void
 }
@@ -104,6 +192,9 @@ export class Scene3D {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
     this.renderer.setSize(host.clientWidth, host.clientHeight, false)
     this.renderer.shadowMap.enabled = false
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 1.12
     const canvas = this.renderer.domElement
     canvas.className = 'scene3d-canvas'
     host.appendChild(canvas)
@@ -123,11 +214,11 @@ export class Scene3D {
     this.controls.target.set(0, (max - min) * TERRAIN_EXAGG * 0.12, 0)
 
     /* ---------- 光照：低角度侧光 + 环境光，突出地形起伏 ---------- */
-    const sun = new THREE.DirectionalLight(0xfff3dd, 2.1)
+    const sun = new THREE.DirectionalLight(0xfff3dd, 1.9)
     sun.position.set(-widthM * 0.6, depthM * 1.1, -depthM * 0.5)
     this.scene.add(sun)
-    this.scene.add(new THREE.AmbientLight(0x9fbcd4, 1.15))
-    const hemi = new THREE.HemisphereLight(0x8fc6e8, 0x2b3326, 0.85)
+    this.scene.add(new THREE.AmbientLight(0x9fbcd4, 0.85))
+    const hemi = new THREE.HemisphereLight(0x8fc6e8, 0x2b3326, 0.65)
     this.scene.add(hemi)
 
     const toX = (lon: number) => ((lon - west) / (east - west) - 0.5) * widthM
@@ -175,7 +266,12 @@ export class Scene3D {
     terrainGeo.setAttribute('uv', new THREE.BufferAttribute(uv, 2))
     terrainGeo.setIndex(new THREE.BufferAttribute(idx, 1))
     terrainGeo.computeVertexNormals()
-    const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
+    const terrainMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 1.0,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    })
     this.disposables.push(terrainGeo, terrainMat)
     this.scene.add(new THREE.Mesh(terrainGeo, terrainMat))
 
@@ -199,11 +295,22 @@ export class Scene3D {
     this.disposables.push(roadGeo, roadMat)
     this.scene.add(new THREE.LineSegments(roadGeo, roadMat))
 
-    /* ---------- 建筑：按高度分桶合并挤出 ---------- */
-    const buckets: THREE.BufferGeometry[][] = [[], [], [], []]
+    /* ---------- 建筑：筛选减量 + 窗户贴图 + 侧/顶分桶合并 ---------- */
+    const windowTex = makeWindowTexture()
+    this.disposables.push(windowTex)
+
+    // 每个高度桶拆为「侧面」与「顶面」两组，侧面赋窗户贴图，顶面赋屋顶材质
+    const sideBuckets: THREE.BufferGeometry[][] = [[], [], [], []]
+    const topBuckets: THREE.BufferGeometry[][] = [[], [], [], []]
+    let kept = 0
     for (const f of city.buildings.features) {
       const props = f.properties
       const h = Number(props.heightM ?? 12)
+      const name = String(props.name ?? '').trim()
+      // 减量筛选：保留高层 / 非住宅 / 命名地标，剔除低层无名住宅与极小建筑
+      if (h < 15 && props.buildingType === '住宅' && !name) continue
+      if (Number(props.footprintM2 ?? 0) < 20) continue
+
       const bi = h < 15 ? 0 : h < 20 ? 1 : h < 30 ? 2 : 3
       const ring = (f.geometry.coordinates as [number, number][][]).find((r) => r.length >= 4)
       if (!ring) continue
@@ -216,48 +323,93 @@ export class Scene3D {
       })
       const elev = Number(props.elevation ?? sampleGrid(this.dem, ring[0][0], ring[0][1]))
       const geo = new THREE.ExtrudeGeometry(shape, {
-        depth: Math.max(4, Number(props.heightM ?? 12)) * BUILDING_EXAGG,
+        depth: Math.max(4, h) * BUILDING_EXAGG,
         bevelEnabled: false,
         steps: 1,
       })
       geo.rotateX(-Math.PI / 2)
       geo.translate(0, (elev - min) * TERRAIN_EXAGG, 0)
 
-      // 顶点色：同一类型统一色，屋面略亮
+      // 顶点色：按建筑类型统一着色，窗户贴图乘以顶点色呈现对应色相
       const c = TYPE_COLOR[props.buildingType] ?? TYPE_COLOR.住宅
-      const count = geo.getAttribute('position').count
-      const colors = new Float32Array(count * 3)
-      for (let i = 0; i < count; i++) {
+      const vcount = geo.getAttribute('position').count
+      const colors = new Float32Array(vcount * 3)
+      for (let i = 0; i < vcount; i++) {
         colors[i * 3] = c[0]
         colors[i * 3 + 1] = c[1]
         colors[i * 3 + 2] = c[2]
       }
       geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-      buckets[bi].push(geo)
-    }
 
-    const buildingMat = new THREE.MeshLambertMaterial({
+      // 按周长与楼层数缩放侧面 UV，使窗户密度随建筑尺寸自适应
+      let perimeter = 0
+      for (let i = 0; i < ring.length - 1; i++) {
+        const dx = toX(ring[i + 1][0]) - toX(ring[i][0])
+        const dz = toZ(ring[i + 1][1]) - toZ(ring[i][1])
+        perimeter += Math.sqrt(dx * dx + dz * dz)
+      }
+      const floors = Math.max(1, Math.round(h / 3))
+      scaleSideUVs(geo, Math.max(1, perimeter / 10), floors)
+
+      // 拆分为侧面与顶面，分别入桶；底面贴地不可见，丢弃
+      const sideGeo = extractGroup(geo, 0)
+      const topGeo = extractGroup(geo, 1)
+      geo.dispose()
+      if (sideGeo) sideBuckets[bi].push(sideGeo)
+      if (topGeo) topBuckets[bi].push(topGeo)
+      kept++
+    }
+    // eslint-disable-next-line no-console
+    console.info(`[Scene3D] 建筑筛选：${kept}/${city.buildings.features.length}`)
+
+    const sideMat = new THREE.MeshStandardMaterial({
+      map: windowTex,
       vertexColors: true,
+      roughness: 0.82,
+      metalness: 0.05,
       side: THREE.DoubleSide,
     })
-    this.disposables.push(buildingMat)
-    const ranges = [
+    const topMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      color: 0x666666,
+      roughness: 0.95,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    })
+    this.disposables.push(sideMat, topMat)
+
+    const ranges: [number, number][] = [
       [0, 15],
       [15, 20],
       [20, 30],
       [30, Infinity],
     ]
-    buckets.forEach((list, i) => {
-      if (!list.length) return
-      const merged = mergeGeometries(list, false)
-      list.forEach((g) => g.dispose())
-      if (!merged) return
-      merged.computeVertexNormals()
-      this.disposables.push(merged)
-      const mesh = new THREE.Mesh(merged, buildingMat)
-      this.scene.add(mesh)
-      this.buildingBuckets.push({ mesh, minH: ranges[i][0] })
-    })
+    for (let i = 0; i < 4; i++) {
+      const sides = sideBuckets[i]
+      const tops = topBuckets[i]
+      if (sides.length) {
+        const merged = mergeGeometries(sides, false)
+        sides.forEach((g) => g.dispose())
+        if (merged) {
+          merged.computeVertexNormals()
+          this.disposables.push(merged)
+          const mesh = new THREE.Mesh(merged, sideMat)
+          this.scene.add(mesh)
+          this.buildingBuckets.push({ mesh, minH: ranges[i][0] })
+        }
+      }
+      if (tops.length) {
+        const merged = mergeGeometries(tops, false)
+        tops.forEach((g) => g.dispose())
+        if (merged) {
+          merged.computeVertexNormals()
+          this.disposables.push(merged)
+          const mesh = new THREE.Mesh(merged, topMat)
+          this.scene.add(mesh)
+          this.buildingBuckets.push({ mesh, minH: ranges[i][0] })
+        }
+      }
+    }
 
     /* ---------- 水系：DEM 淹没掩膜 + 波光着色器 ---------- */
     const demData = new Uint8Array(cols * rows * 4)
