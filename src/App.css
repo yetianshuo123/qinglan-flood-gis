@@ -45,15 +45,15 @@
 .river-flow-canvas {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 4;
   pointer-events: none;
 }
 
-/* 洪水岸线 + 水位读数 HUD：位于 Three.js 水面之上、建筑体块之下 */
+/* 洪水淹没演示画布：位于建筑体块之下、地形之上 */
 .flood-canvas {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 4;
   pointer-events: none;
 }
 
