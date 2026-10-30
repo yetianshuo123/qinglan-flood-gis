@@ -30,6 +30,10 @@ interface LayersPanelProps {
   diffMode: DiffMode
   onDiffVisible: (v: boolean) => void
   onDiffMode: (m: DiffMode) => void
+  buildingMinHeight: number
+  onBuildingMinHeight: (h: number) => void
+  floodDemo: boolean
+  onFloodDemo: (v: boolean) => void
   mode: PanelMode
   onMode: (m: PanelMode) => void
 }
@@ -216,9 +220,61 @@ function LayersPanel(props: LayersPanelProps) {
                           {Math.round(state.opacity * 100)}%
                         </span>
                       </div>
+                      {meta.id === 'buildings' && (
+                        <div className="height-filter">
+                          <div className="filter-label">三维体块高度筛选</div>
+                          <div className="diff-controls">
+                            {[0, 15, 20, 30].map((h) => (
+                              <button
+                                key={h}
+                                type="button"
+                                className={
+                                  props.buildingMinHeight === h ? 'is-active' : ''
+                                }
+                                onClick={() => props.onBuildingMinHeight(h)}
+                              >
+                                {h === 0 ? '全部' : `≥${h} m`}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="filter-note">
+                            低于阈值的建筑不再绘制，透出绿地与地形底图
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })}
+
+              {group === '内涝专题' && (
+                <div
+                  className={`layer-item flood-item${
+                    props.floodDemo ? '' : ' is-off'
+                  }`}
+                >
+                  <div className="layer-main">
+                    <button
+                      type="button"
+                      className="layer-eye"
+                      title={
+                        props.floodDemo ? '暂停水位演示' : '播放水位上涨演示'
+                      }
+                      onClick={() => props.onFloodDemo(!props.floodDemo)}
+                    >
+                      <Icon name={props.floodDemo ? 'pause' : 'play'} size={13} />
+                    </button>
+                    <div className="layer-label">
+                      <span className="layer-name">水位上涨演示</span>
+                      <span className="layer-info">
+                        DEM 洪水演进 · 淹没范围随水位抬升
+                      </span>
+                    </div>
+                    <span className="layer-kind is-diff">
+                      {props.floodDemo ? '播放中' : '动画'}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {group === '内涝专题' && props.hasBaseline && (
                 <div
@@ -277,7 +333,7 @@ function LayersPanel(props: LayersPanelProps) {
               className="legend-gradient"
               style={{
                 background:
-                  'linear-gradient(90deg,#e9e5d4,#dfe2cc,#cfd9b6,#b7cba1,#96b389,#76966f)',
+                  'linear-gradient(90deg,#c1cba0,#9aae7d,#7a9061,#556b46,#3c4f35)',
               }}
             />
             <div className="legend-scale">

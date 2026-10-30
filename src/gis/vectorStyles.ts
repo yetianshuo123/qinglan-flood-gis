@@ -21,9 +21,9 @@ export const BUILDING_COLORS: Record<string, string> = {
 export const BUILDING_TYPES = ['住宅', '商业', '公共', '学校', '医院', '工业']
 
 export const ROAD_CLASS_STYLE = {
-  主干道: { color: '#f1e7d3', casing: 'rgba(6, 11, 16, 0.8)', width: 3.6 },
-  次干道: { color: '#c4d1d8', casing: 'rgba(6, 11, 16, 0.7)', width: 2.5 },
-  支路: { color: '#96a7b4', casing: 'rgba(6, 11, 16, 0.58)', width: 1.6 },
+  主干道: { color: '#5f666c', casing: 'rgba(222, 226, 218, 0.82)', width: 3.6 },
+  次干道: { color: '#4d5359', casing: 'rgba(206, 212, 204, 0.68)', width: 2.5 },
+  支路: { color: '#454b51', casing: 'rgba(188, 194, 186, 0.55)', width: 1.6 },
 } as const
 
 export type RoadClassKey = keyof typeof ROAD_CLASS_STYLE
@@ -85,8 +85,17 @@ export function districtStyle(_feature?: FeatureLike, _resolution?: number): Sty
 }
 
 const buildingStyleCache = new globalThis.Map<string, Style>()
+const EMPTY_STYLE = new Style({})
+
+/** 三维/平面建筑的最小展示高度，低于该值的建筑不绘制（降低城市密度） */
+let buildingMinHeight = 0
+
+export function setBuildingMinHeight(h: number) {
+  buildingMinHeight = Math.max(0, h)
+}
 
 export function buildingStyle(feature: FeatureLike): Style {
+  if (Number(feature.get('heightM') ?? 0) < buildingMinHeight) return EMPTY_STYLE
   const type = String(feature.get('buildingType') ?? '住宅')
   const key = BUILDING_COLORS[type] ? type : '住宅'
   const cached = buildingStyleCache.get(key)

@@ -27,6 +27,7 @@ import {
   createRainDataUrl,
   createRiskDataUrl,
   createTerrainDataUrl,
+  contourSegments,
   rasterLevelFor,
 } from '../gis/rasters'
 import {
@@ -44,6 +45,7 @@ import {
   queryPolygonStyle,
   roadStyle,
   selectionStyle,
+  setBuildingMinHeight,
   waterStyle,
 } from '../gis/vectorStyles'
 import { lonLatToCell, sampleGrid } from '../gis/grid'
@@ -67,6 +69,10 @@ export interface MapViewProps {
   diffVisible: boolean
   diffMode: DiffMode
   baselineModel: ModelResult | null
+  /** 三维体块与平面建筑的最小展示高度（m），0 表示全部展示 */
+  buildingMinHeight: number
+  /** 是否播放水位上涨淹没演示 */
+  floodDemo: boolean
   onCursor: (info: CursorInfo | null) => void
   onSelect: (sel: SelectionInfo | null) => void
   onPointQuery: (p: LonLat) => void
@@ -107,6 +113,7 @@ export default function MapView(props: MapViewProps) {
   const tipSubRef = useRef<HTMLSpanElement>(null)
   const b3dRef = useRef<HTMLCanvasElement>(null)
   const flowRef = useRef<HTMLCanvasElement>(null)
+  const floodRef = useRef<HTMLCanvasElement>(null)
   const labelRef = useRef<HTMLCanvasElement>(null)
   const mapRef = useRef<Map | null>(null)
   const layersRef = useRef<Record<string, BaseLayer>>({})
@@ -521,8 +528,8 @@ export default function MapView(props: MapViewProps) {
       const zoom = view.getZoom() ?? 0
       const res = view.getResolution() ?? 1
       // 分级渲染：小比例尺直接使用矢量层的平面基底，避免逐栋投影；
-      // 15.9 → 16.6 渐入三维体块，兼顾观感与移动端帧率
-      const t = Math.min(1, Math.max(0, (zoom - 15.9) / 0.7))
+      // 15.75 → 16.3 渐入三维体块，兼顾观感与移动端帧率
+      const t = Math.min(1, Math.max(0, (zoom - 15.75) / 0.55))
       if (t <= 0) return
 
       interface Block {
@@ -566,11 +573,14 @@ export default function MapView(props: MapViewProps) {
         // 屏幕上过小的建筑不再绘制体块，远距离时可省去大量路径运算
         if ((maxX - minX) * (maxY - minY) < 26) continue
         const type = String(feature.get('buildingType') ?? '住宅')
+        const heightM = Number(feature.get('heightM') ?? 12)
+        // 高度筛选：低于阈值的建筑不绘制体块，透出绿地与地形底图，降低城市密度
+        if (heightM < propsRef.current.buildingMinHeight) continue
         blocks.push({
           pts,
           color: BUILDING_COLORS[type] ?? '#d9dbd4',
           floors: Number(feature.get('floors') ?? 0),
-          heightM: Number(feature.get('heightM') ?? 12),
+          heightM,
           name: String(feature.get('name') ?? ''),
           type,
           depth: maxY,
@@ -895,6 +905,12 @@ export default function MapView(props: MapViewProps) {
     }
   }, [])
 
+  /* ---------------- 建筑高度筛选：同步矢量层样式并重绘 ---------------- */
+  useEffect(() => {
+    setBuildingMinHeight(props.buildingMinHeight)
+    mapRef.current?.render()
+  }, [props.buildingMinHeight])
+
   /* ---------------- 河道水流动画（放大后显现，独立画布轻量绘制） ---------------- */
   useEffect(() => {
     const map = mapRef.current
@@ -981,6 +997,149 @@ export default function MapView(props: MapViewProps) {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
     }
   }, [props.city])
+
+  /* ---------------- 水位上涨淹没演示（基于 DEM 的洪水演进动画） ---------------- */
+  useEffect(() => {
+    const map = mapRef.current
+    const canvas = floodRef.current
+    if (!map || !canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    if (!props.floodDemo) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      return
+    }
+
+    const dem = props.city.terrain.dem
+    const { cols, rows, values } = dem
+    const mask = document.createElement('canvas')
+    mask.width = cols
+    mask.height = rows
+    const mctx = mask.getContext('2d')
+    if (!mctx) return
+    const maskImg = mctx.createImageData(cols, rows)
+    const glint = document.createElement('canvas')
+    glint.width = cols
+    glint.height = rows
+    const gctx = glint.getContext('2d')
+    if (!gctx) return
+    const glintImg = gctx.createImageData(cols, rows)
+    let raf = 0
+
+    const render = (now: number) => {
+      raf = requestAnimationFrame(render)
+      const size = map.getSize()
+      if (!size) return
+      const [w, h] = size
+      const dpr = window.devicePixelRatio || 1
+      const cw = Math.round(w * dpr)
+      const ch = Math.round(h * dpr)
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw
+        canvas.height = ch
+        canvas.style.width = `${w}px`
+        canvas.style.height = `${h}px`
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+
+      // 13 s 一个周期：上涨 8 s、回落 5 s，水位由河床附近逐步抬升
+      const cycle = 13000
+      const p = (now % cycle) / cycle
+      const wave = p < 0.62 ? p / 0.62 : (1 - p) / 0.38
+      const level = dem.min + 0.4 + wave * 6.2
+
+      // 淹没掩膜：水位以下的地表按水深着色，浅水青、深水蓝
+      const data = maskImg.data
+      for (let i = 0; i < cols * rows; i++) {
+        const depth = level - values[i]
+        const o = i * 4
+        if (depth <= 0) {
+          data[o + 3] = 0
+          continue
+        }
+        const k = Math.min(1, depth / 1.6)
+        data[o] = Math.round(128 - 104 * k)
+        data[o + 1] = Math.round(208 - 112 * k)
+        data[o + 2] = Math.round(228 - 70 * k)
+        data[o + 3] = Math.round(46 + 104 * k)
+      }
+      mctx.putImageData(maskImg, 0, 0)
+
+      const tl = map.getPixelFromCoordinate(fromLonLat([dem.west, dem.north]))
+      const br = map.getPixelFromCoordinate(fromLonLat([dem.east, dem.south]))
+      if (!tl || !br) return
+      const spanX = br[0] - tl[0]
+      const spanY = br[1] - tl[1]
+      ctx.imageSmoothingEnabled = true
+      ctx.drawImage(mask, tl[0], tl[1], spanX, spanY)
+
+      // 水面波光：多向波干涉形成的碎光磷火，避免规则条带感
+      const gd = glintImg.data
+      const phase = now * 0.012
+      for (let i = 0; i < cols * rows; i++) {
+        const depth = level - values[i]
+        const o = i * 4
+        if (depth <= 0.3) {
+          gd[o + 3] = 0
+          continue
+        }
+        const gr = Math.floor(i / cols)
+        const gc = i % cols
+        // 三组不同方向/频率的波叠加，让高光颗粒破碎、不再连成条纹
+        const s =
+          Math.sin(gc * 1.31 + gr * 0.58 - phase) * 0.5 +
+          Math.sin(gc * 0.44 - gr * 1.06 - phase * 0.72) * 0.32 +
+          Math.sin(gc * 2.05 + gr * 1.83 - phase * 1.5) * 0.18
+        gd[o] = 236
+        gd[o + 1] = 248
+        gd[o + 2] = 255
+        gd[o + 3] = Math.round(
+          Math.pow(Math.max(0, s), 6) * 46 * Math.min(1, depth / 0.9),
+        )
+      }
+      gctx.putImageData(glintImg, 0, 0)
+      ctx.drawImage(glint, tl[0], tl[1], spanX, spanY)
+
+      // 岸线：当前水位的等值线，虚线流动表示水面推进
+      const segs = contourSegments(dem, level)
+      const mapX = (c: number) => tl[0] + (c / (cols - 1)) * spanX
+      const mapY = (r: number) => tl[1] + (r / (rows - 1)) * spanY
+      ctx.save()
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.setLineDash([10, 8])
+      ctx.lineDashOffset = -(now * 0.04) % 18
+      ctx.lineWidth = 1.5
+      ctx.strokeStyle = 'rgba(168, 238, 255, 0.88)'
+      ctx.beginPath()
+      for (const s of segs) {
+        ctx.moveTo(mapX(s[0]), mapY(s[1]))
+        ctx.lineTo(mapX(s[2]), mapY(s[3]))
+      }
+      ctx.stroke()
+      ctx.restore()
+
+      // 水位读数
+      const label = `洪水水位 ${level.toFixed(1)} m`
+      ctx.font = `600 12px ${FONT}`
+      const tw = ctx.measureText(label).width
+      const bx = w / 2 - (tw + 26) / 2
+      const by = 58
+      ctx.fillStyle = 'rgba(9, 18, 24, 0.78)'
+      ctx.fillRect(bx, by, tw + 26, 26)
+      ctx.strokeStyle = 'rgba(96, 196, 226, 0.5)'
+      ctx.lineWidth = 1
+      ctx.strokeRect(bx, by, tw + 26, 26)
+      ctx.fillStyle = '#d8f4ff'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(label, w / 2, by + 13)
+    }
+
+    raf = requestAnimationFrame(render)
+    return () => cancelAnimationFrame(raf)
+  }, [props.city, props.floodDemo])
 
   /* ---------------- 栅格数据源（多级重采样 · 分帧生成 · 按级别缓存） ---------------- */
   useEffect(() => {
@@ -1205,6 +1364,7 @@ export default function MapView(props: MapViewProps) {
     <div className="map-host">
       <div className="map-canvas" ref={containerRef} />
       <canvas className="river-flow-canvas" ref={flowRef} aria-hidden="true" />
+      <canvas className="flood-canvas" ref={floodRef} aria-hidden="true" />
       <canvas className="building-3d-canvas" ref={b3dRef} aria-hidden="true" />
       <canvas className="map-label-canvas" ref={labelRef} aria-hidden="true" />
       <div className="map-tooltip" ref={tooltipRef}>

@@ -49,6 +49,14 @@
   pointer-events: none;
 }
 
+/* 洪水淹没演示画布：位于建筑体块之下、地形之上 */
+.flood-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
 /* ============================ 顶部工具栏 ============================ */
 
 .toolbar {
@@ -603,6 +611,28 @@ input[type='range']::-moz-range-thumb {
   color: #ffd78a;
   border-color: rgba(240, 179, 78, 0.4);
   background: rgba(240, 179, 78, 0.1);
+}
+
+/* 建筑高度筛选 */
+.height-filter {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line);
+}
+
+.filter-label {
+  padding-left: 29px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.filter-note {
+  margin-top: 4px;
+  padding-left: 29px;
+  font-size: 9px;
+  line-height: 1.4;
+  color: var(--text-dim);
 }
 
 /* ============================ 图例 ============================ */

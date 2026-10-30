@@ -52,6 +52,8 @@ export default function App() {
   const [clearKey, setClearKey] = useState(0)
   const [leftMode, setLeftMode] = useState<PanelMode>('open')
   const [rightMode, setRightMode] = useState<PanelMode>('open')
+  const [buildingMinHeight, setBuildingMinHeight] = useState(0)
+  const [floodDemo, setFloodDemo] = useState(false)
 
   const detail = useMemo(
     () =>
@@ -169,6 +171,8 @@ export default function App() {
         diffVisible={diffVisible}
         diffMode={diffMode}
         baselineModel={baseline?.model ?? null}
+        buildingMinHeight={buildingMinHeight}
+        floodDemo={floodDemo}
         onCursor={setCursor}
         onSelect={handleSelect}
         onPointQuery={handlePoint}
@@ -198,6 +202,10 @@ export default function App() {
         diffMode={diffMode}
         onDiffVisible={setDiffVisible}
         onDiffMode={setDiffMode}
+        buildingMinHeight={buildingMinHeight}
+        onBuildingMinHeight={setBuildingMinHeight}
+        floodDemo={floodDemo}
+        onFloodDemo={setFloodDemo}
         mode={leftMode}
         onMode={setLeftMode}
       />

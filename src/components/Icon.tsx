@@ -17,6 +17,7 @@ export type IconName =
   | 'chevron'
   | 'close'
   | 'play'
+  | 'pause'
   | 'info'
   | 'save'
   | 'chart'
@@ -42,6 +43,7 @@ const PATHS: Record<IconName, string[]> = {
   chevron: ['M9 6l6 6-6 6'],
   close: ['M6 6l12 12', 'M18 6L6 18'],
   play: ['M8 5l11 7-11 7z'],
+  pause: ['M9 5v14', 'M15 5v14'],
   info: ['M12 21a9 9 0 100-18 9 9 0 000 18z', 'M12 11v5', 'M12 8h.01'],
   save: ['M5 4h11l3 3v13H5z', 'M8 4v6h7V4', 'M8 20v-6h8v6'],
   chart: ['M4 20V11', 'M10 20V4', 'M16 20v-6', 'M2 20h20'],
