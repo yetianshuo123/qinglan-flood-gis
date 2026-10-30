@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import MapView from './components/MapView'
+import Map3D from './components/Map3D'
 import Toolbar from './components/Toolbar'
 import LayersPanel from './components/LayersPanel'
 import InspectorPanel, { type TabId } from './components/InspectorPanel'
@@ -54,6 +55,7 @@ export default function App() {
   const [rightMode, setRightMode] = useState<PanelMode>('open')
   const [buildingMinHeight, setBuildingMinHeight] = useState(0)
   const [floodDemo, setFloodDemo] = useState(false)
+  const [view3d, setView3d] = useState(false)
 
   const detail = useMemo(
     () =>
@@ -158,27 +160,37 @@ export default function App() {
     <div
       className={`app-shell panel-left-${leftMode} panel-right-${rightMode}`}
     >
-      <MapView
-        city={CITY}
-        model={model}
-        layerStates={layerStates}
-        tool={tool}
-        selection={selection}
-        queryRing={queryRing}
-        focusPoint={focusPoint}
-        resetKey={resetKey}
-        clearKey={clearKey}
-        diffVisible={diffVisible}
-        diffMode={diffMode}
-        baselineModel={baseline?.model ?? null}
-        buildingMinHeight={buildingMinHeight}
-        floodDemo={floodDemo}
-        onCursor={setCursor}
-        onSelect={handleSelect}
-        onPointQuery={handlePoint}
-        onRingDrawn={handleRing}
-        onViewChange={setViewState}
-      />
+      {view3d ? (
+        <Map3D
+          city={CITY}
+          buildingMinHeight={buildingMinHeight}
+          floodDemo={floodDemo}
+          onExit={() => setView3d(false)}
+          onToggleFlood={setFloodDemo}
+        />
+      ) : (
+        <MapView
+          city={CITY}
+          model={model}
+          layerStates={layerStates}
+          tool={tool}
+          selection={selection}
+          queryRing={queryRing}
+          focusPoint={focusPoint}
+          resetKey={resetKey}
+          clearKey={clearKey}
+          diffVisible={diffVisible}
+          diffMode={diffMode}
+          baselineModel={baseline?.model ?? null}
+          buildingMinHeight={buildingMinHeight}
+          floodDemo={floodDemo}
+          onCursor={setCursor}
+          onSelect={handleSelect}
+          onPointQuery={handlePoint}
+          onRingDrawn={handleRing}
+          onViewChange={setViewState}
+        />
+      )}
 
       <Toolbar
         tool={tool}
@@ -189,6 +201,8 @@ export default function App() {
         scenarioLabel={model.scenario.label}
         hasBaseline={!!baseline}
         dirty={dirty}
+        view3d={view3d}
+        onView3d={setView3d}
       />
 
       <LayersPanel

@@ -10,6 +10,9 @@ interface ToolbarProps {
   scenarioLabel: string
   hasBaseline: boolean
   dirty: boolean
+  /** 当前是否处于三维地图视图 */
+  view3d: boolean
+  onView3d: (on: boolean) => void
 }
 
 const TOOLS: { id: Tool; label: string; icon: IconName; hint: string }[] = [
@@ -57,6 +60,15 @@ export default function Toolbar(props: ToolbarProps) {
           </button>
         ))}
         <span className="tool-divider" />
+        <button
+          type="button"
+          className={`tool-btn${props.view3d ? ' is-active' : ''}`}
+          title="切换三维城市地图视图"
+          onClick={() => props.onView3d(!props.view3d)}
+        >
+          <Icon name="layers" size={16} />
+          <span>3D 地图</span>
+        </button>
         <button type="button" className="tool-btn tool-btn--ghost" title="清除选择与查询结果" onClick={props.onClear}>
           <Icon name="trash" size={15} />
           <span>清除</span>

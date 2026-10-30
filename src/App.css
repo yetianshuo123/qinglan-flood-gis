@@ -57,6 +57,114 @@
   pointer-events: none;
 }
 
+/* ============================ 三维地图视图 ============================ */
+
+.map3d-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #070d12;
+}
+
+.scene3d-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.scene3d-canvas:active {
+  cursor: grabbing;
+}
+
+.map3d-hud {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--status-h) + 16px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(9, 16, 22, 0.82);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  z-index: 24;
+}
+
+.map3d-hud-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #e6f2f8;
+}
+
+.map3d-hud-sub {
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.map3d-hud-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.map3d-hud-actions button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-soft);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.map3d-hud-actions button:hover {
+  color: var(--accent);
+  border-color: rgba(76, 201, 240, 0.35);
+  background: var(--accent-bg);
+}
+
+.map3d-hud-tip {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.map3d-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  color: var(--text-soft);
+  font-size: 12px;
+  text-align: center;
+}
+
+.map3d-fallback button {
+  padding: 7px 14px;
+  border: 1px solid rgba(76, 201, 240, 0.35);
+  border-radius: 7px;
+  background: var(--accent-bg);
+  color: #eaf7fd;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
 /* ============================ 顶部工具栏 ============================ */
 
 .toolbar {
