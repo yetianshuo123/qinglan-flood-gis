@@ -7,6 +7,7 @@ import GeoJSON from 'ol/format/GeoJSON'
 import type { Geometry } from 'geojson'
 import type BaseLayer from 'ol/layer/Base'
 import ImageLayer from 'ol/layer/Image'
+import TileLayer from 'ol/layer/Tile'
 import VectorLayer from 'ol/layer/Vector'
 import { defaults as defaultInteractions, Draw } from 'ol/interaction'
 import type { DrawEvent } from 'ol/interaction/Draw'
@@ -18,6 +19,7 @@ import { fromLonLat, toLonLat, transformExtent } from 'ol/proj'
 import type { Extent } from 'ol/extent'
 import ImageStatic from 'ol/source/ImageStatic'
 import VectorSource from 'ol/source/Vector'
+import XYZ from 'ol/source/XYZ'
 import { getArea, getLength } from 'ol/sphere'
 import type { CityData, LonLat, ModelResult } from '../gis/types'
 import type { DiffMode } from '../gis/rasters'
@@ -26,10 +28,10 @@ import {
   createDiffDataUrl,
   createRainDataUrl,
   createRiskDataUrl,
-  createTerrainDataUrl,
   contourSegments,
   rasterLevelFor,
 } from '../gis/rasters'
+import { WaterOverlay } from '../gis/waterOverlay'
 import {
   buildingStyle,
   BUILDING_COLORS,
@@ -114,6 +116,7 @@ export default function MapView(props: MapViewProps) {
   const b3dRef = useRef<HTMLCanvasElement>(null)
   const flowRef = useRef<HTMLCanvasElement>(null)
   const floodRef = useRef<HTMLCanvasElement>(null)
+  const waterOverlayRef = useRef<WaterOverlay | null>(null)
   const labelRef = useRef<HTMLCanvasElement>(null)
   const mapRef = useRef<Map | null>(null)
   const layersRef = useRef<Record<string, BaseLayer>>({})
@@ -189,7 +192,16 @@ export default function MapView(props: MapViewProps) {
       ) as Extent,
     })
 
-    const terrainLayer = new ImageLayer({ zIndex: 1 })
+    // 真实卫星影像底图（ArcGIS World Imagery，全球覆盖、免鉴权）
+    const terrainLayer = new TileLayer({
+      source: new XYZ({
+        url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attributions: 'Esri, Maxar, Earthstar Geographics',
+        maxZoom: 19,
+        crossOrigin: 'anonymous',
+      }),
+      zIndex: 1,
+    })
     const rainfallLayer = new ImageLayer({ zIndex: 10 })
     const depthLayer = new ImageLayer({ zIndex: 20 })
     const riskLayer = new ImageLayer({ zIndex: 25 })
@@ -310,6 +322,22 @@ export default function MapView(props: MapViewProps) {
     )
     map.addControl(new Zoom({ className: 'gis-zoom' }))
     mapRef.current = map
+
+    // 三维水面覆盖层：用 Three.js ShaderMaterial 实时渲染河道与淹没水面
+    // 若浏览器环境不支持 WebGL（如部分沙箱/无 GPU），则降级跳过，不影响底图与交互
+    const host = container.parentElement
+    let water: WaterOverlay | null = null
+    try {
+      water = new WaterOverlay(host ?? container, city.terrain.dem)
+      waterOverlayRef.current = water
+      map.on('postrender', () => {
+        water?.syncView(map)
+      })
+      window.addEventListener('resize', () => water?.resize())
+      water.start()
+    } catch {
+      waterOverlayRef.current = null
+    }
 
     view.fit(mapExtent, { padding: FIT_PADDING })
 
@@ -479,6 +507,8 @@ export default function MapView(props: MapViewProps) {
       resizeObserver.disconnect()
       map.un('moveend', updateViewState)
       map.un('moveend', syncRasterLevel)
+      water?.dispose()
+      waterOverlayRef.current = null
       map.setTarget(undefined)
       mapRef.current = null
       layersRef.current = {}
@@ -637,7 +667,7 @@ export default function MapView(props: MapViewProps) {
             ctx.lineTo(p2[0] + dx, p2[1] + dy)
             ctx.lineTo(p1[0] + dx, p1[1] + dy)
             ctx.closePath()
-            ctx.fillStyle = shift(b.color, facing >= 0 ? 0.12 : -0.06)
+            ctx.fillStyle = shift(b.color, facing >= 0 ? 0.18 : -0.12)
             ctx.fill()
           }
         }
@@ -998,33 +1028,33 @@ export default function MapView(props: MapViewProps) {
     }
   }, [props.city])
 
-  /* ---------------- 水位上涨淹没演示（基于 DEM 的洪水演进动画） ---------------- */
+  /* ---------------- 水位上涨淹没演示（Three.js 水面 + 岸线/HUD） ---------------- */
   useEffect(() => {
     const map = mapRef.current
     const canvas = floodRef.current
+    const water = waterOverlayRef.current
     if (!map || !canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    if (!props.floodDemo) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      return
-    }
 
     const dem = props.city.terrain.dem
-    const { cols, rows, values } = dem
-    const mask = document.createElement('canvas')
-    mask.width = cols
-    mask.height = rows
-    const mctx = mask.getContext('2d')
-    if (!mctx) return
-    const maskImg = mctx.createImageData(cols, rows)
-    const glint = document.createElement('canvas')
-    glint.width = cols
-    glint.height = rows
-    const gctx = glint.getContext('2d')
-    if (!gctx) return
-    const glintImg = gctx.createImageData(cols, rows)
+    const baseLevel = dem.min + 1.6 // 河道常水位：刚好覆盖河床
+    const topLevel = dem.min + 8.2 // 洪水演示上限
     let raf = 0
+
+    if (!props.floodDemo) {
+      water?.setLevel(baseLevel)
+      const size = map.getSize()
+      if (size) {
+        const dpr = window.devicePixelRatio || 1
+        canvas.width = Math.round(size[0] * dpr)
+        canvas.height = Math.round(size[1] * dpr)
+        canvas.style.width = `${size[0]}px`
+        canvas.style.height = `${size[1]}px`
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+      }
+      return
+    }
 
     const render = (now: number) => {
       raf = requestAnimationFrame(render)
@@ -1043,82 +1073,37 @@ export default function MapView(props: MapViewProps) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
       ctx.clearRect(0, 0, w, h)
 
-      // 13 s 一个周期：上涨 8 s、回落 5 s，水位由河床附近逐步抬升
+      // 13 s 周期：上涨 8 s、回落 5 s
       const cycle = 13000
       const p = (now % cycle) / cycle
       const wave = p < 0.62 ? p / 0.62 : (1 - p) / 0.38
-      const level = dem.min + 0.4 + wave * 6.2
+      const level = baseLevel + wave * (topLevel - baseLevel)
+      water?.setLevel(level)
 
-      // 淹没掩膜：水位以下的地表按水深着色，浅水青、深水蓝
-      const data = maskImg.data
-      for (let i = 0; i < cols * rows; i++) {
-        const depth = level - values[i]
-        const o = i * 4
-        if (depth <= 0) {
-          data[o + 3] = 0
-          continue
-        }
-        const k = Math.min(1, depth / 1.6)
-        data[o] = Math.round(128 - 104 * k)
-        data[o + 1] = Math.round(208 - 112 * k)
-        data[o + 2] = Math.round(228 - 70 * k)
-        data[o + 3] = Math.round(46 + 104 * k)
-      }
-      mctx.putImageData(maskImg, 0, 0)
-
+      // 岸线：当前水位等值线，虚线流动表示水面推进
       const tl = map.getPixelFromCoordinate(fromLonLat([dem.west, dem.north]))
       const br = map.getPixelFromCoordinate(fromLonLat([dem.east, dem.south]))
-      if (!tl || !br) return
-      const spanX = br[0] - tl[0]
-      const spanY = br[1] - tl[1]
-      ctx.imageSmoothingEnabled = true
-      ctx.drawImage(mask, tl[0], tl[1], spanX, spanY)
-
-      // 水面波光：多向波干涉形成的碎光磷火，避免规则条带感
-      const gd = glintImg.data
-      const phase = now * 0.012
-      for (let i = 0; i < cols * rows; i++) {
-        const depth = level - values[i]
-        const o = i * 4
-        if (depth <= 0.3) {
-          gd[o + 3] = 0
-          continue
+      if (tl && br) {
+        const spanX = br[0] - tl[0]
+        const spanY = br[1] - tl[1]
+        const segs = contourSegments(dem, level)
+        const mapX = (c: number) => tl[0] + (c / (dem.cols - 1)) * spanX
+        const mapY = (r: number) => tl[1] + (r / (dem.rows - 1)) * spanY
+        ctx.save()
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.setLineDash([10, 8])
+        ctx.lineDashOffset = -(now * 0.04) % 18
+        ctx.lineWidth = 1.5
+        ctx.strokeStyle = 'rgba(168, 238, 255, 0.88)'
+        ctx.beginPath()
+        for (const s of segs) {
+          ctx.moveTo(mapX(s[0]), mapY(s[1]))
+          ctx.lineTo(mapX(s[2]), mapY(s[3]))
         }
-        const gr = Math.floor(i / cols)
-        const gc = i % cols
-        // 三组不同方向/频率的波叠加，让高光颗粒破碎、不再连成条纹
-        const s =
-          Math.sin(gc * 1.31 + gr * 0.58 - phase) * 0.5 +
-          Math.sin(gc * 0.44 - gr * 1.06 - phase * 0.72) * 0.32 +
-          Math.sin(gc * 2.05 + gr * 1.83 - phase * 1.5) * 0.18
-        gd[o] = 236
-        gd[o + 1] = 248
-        gd[o + 2] = 255
-        gd[o + 3] = Math.round(
-          Math.pow(Math.max(0, s), 6) * 46 * Math.min(1, depth / 0.9),
-        )
+        ctx.stroke()
+        ctx.restore()
       }
-      gctx.putImageData(glintImg, 0, 0)
-      ctx.drawImage(glint, tl[0], tl[1], spanX, spanY)
-
-      // 岸线：当前水位的等值线，虚线流动表示水面推进
-      const segs = contourSegments(dem, level)
-      const mapX = (c: number) => tl[0] + (c / (cols - 1)) * spanX
-      const mapY = (r: number) => tl[1] + (r / (rows - 1)) * spanY
-      ctx.save()
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-      ctx.setLineDash([10, 8])
-      ctx.lineDashOffset = -(now * 0.04) % 18
-      ctx.lineWidth = 1.5
-      ctx.strokeStyle = 'rgba(168, 238, 255, 0.88)'
-      ctx.beginPath()
-      for (const s of segs) {
-        ctx.moveTo(mapX(s[0]), mapY(s[1]))
-        ctx.lineTo(mapX(s[2]), mapY(s[3]))
-      }
-      ctx.stroke()
-      ctx.restore()
 
       // 水位读数
       const label = `洪水水位 ${level.toFixed(1)} m`
@@ -1138,34 +1123,14 @@ export default function MapView(props: MapViewProps) {
     }
 
     raf = requestAnimationFrame(render)
-    return () => cancelAnimationFrame(raf)
+    return () => {
+      cancelAnimationFrame(raf)
+      water?.setLevel(baseLevel)
+    }
   }, [props.city, props.floodDemo])
 
   /* ---------------- 栅格数据源（多级重采样 · 分帧生成 · 按级别缓存） ---------------- */
-  useEffect(() => {
-    if (!mapRef.current) return
-    const cacheKey = `terrain|${rasterLevel.key}`
-    const cached = getRaster(cacheKey, props.city.terrain)
-    if (cached) {
-      setImageSource('terrain', cached, true)
-      return
-    }
-    let cancelled = false
-    void createTerrainDataUrl(
-      props.city.terrain,
-      rasterLevel.terrainScale,
-      rasterLevel.bicubic,
-    ).then((url) => {
-      if (cancelled) return
-      putRaster(cacheKey, props.city.terrain, url)
-      setImageSource('terrain', url, true)
-    })
-    return () => {
-      cancelled = true
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.city, rasterLevel])
-
+  // 地形底图已由真实卫星影像瓦片承载，不再生成程序化地形栅格
   useEffect(() => {
     if (!mapRef.current) return
     let cancelled = false
